@@ -1,0 +1,25 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.voskcommand'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace 'com.superlooi.voskcommand'
+
+  defaultConfig {
+    minSdkVersion 23
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'com.alphacephei:vosk-android:0.3.75'
+}

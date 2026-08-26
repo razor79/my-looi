@@ -1,0 +1,12 @@
+diff --git a/ios/handlers/SherpaOnnxASRHandler.swift b/ios/handlers/SherpaOnnxASRHandler.swift
+--- a/ios/handlers/SherpaOnnxASRHandler.swift
++++ b/ios/handlers/SherpaOnnxASRHandler.swift
+@@ -265,7 +265,7 @@ import AVFoundation
+             whisperConfig = sherpaOnnxOfflineWhisperModelConfig(
+                 encoder: (modelDir as NSString).appendingPathComponent(encoderFile),
+                 decoder: (modelDir as NSString).appendingPathComponent(decoderFile),
+-                language: language.isEmpty ? "en" : language,
++                language: language,
+                 task: task
+             )
+

@@ -1,0 +1,21 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.backupstorageaccess'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace 'com.superlooi.backupstorageaccess'
+
+  defaultConfig {
+    minSdkVersion 23
+  }
+}
+
+
+// Deliberately no Google Drive, Credential Manager, or other storage SDK.
+// This module uses Android's built-in Storage Access Framework only.

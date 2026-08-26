@@ -1,0 +1,55 @@
+# Dependencies / package managers
+node_modules/
+.venv*/
+
+# Expo / generated native output
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+/ios/
+/android/
+.kotlin/
+.metro-health-check*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Build output / diagnostics / private artifacts
+output/
+.build-assets/
+*.apk
+*.aab
+*.log
+*.zip
+looi-diagnostics-*
+*handoff*.md
+
+# Private engineering continuity / scratch
+/AGENTS.md
+/CLAUDE.md
+/progress.md
+/todo.md
+/pre-progress.md
+/pre-todo.md
+/looi-mvp-spec.md
+
+# TypeScript / local OS
+*.tsbuildinfo
+.DS_Store
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.claude/
+*.tgz
+*.sha256
+/assets/diagnostics/

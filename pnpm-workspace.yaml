@@ -1,0 +1,15 @@
+packages:
+  - "."
+  - "packages/*"
+
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 10080
+
+patchedDependencies:
+  "@siteed/sherpa-onnx.rn": "patches/@siteed__sherpa-onnx.rn.patch"
+
+allowBuilds:
+  '@siteed/sherpa-onnx.rn': true
+  esbuild: true
+  protobufjs: false

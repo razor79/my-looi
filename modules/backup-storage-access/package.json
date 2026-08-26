@@ -1,0 +1,9 @@
+{
+  "name": "backup-storage-access",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "peerDependencies": {
+    "expo": "*"
+  },
+  "private": true
+}

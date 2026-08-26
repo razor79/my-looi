@@ -1,0 +1,12 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.diagnosticarchive'
+version = '1.0.0'
+
+expoModule { canBePublished false }
+
+android {
+  namespace 'com.superlooi.diagnosticarchive'
+  defaultConfig { minSdkVersion 24 }
+}
