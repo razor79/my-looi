@@ -34,7 +34,15 @@ while IFS= read -r -d '' f; do
 done < <(find "$tmp/apk" -type f -print0)
 
 if grep -Eiq '\bsk-[A-Za-z0-9_-]{20,}\b' "$strings_file"; then fail "secret-like OpenAI key found"; fi
-if grep -Eiq '(/home/[^/[:space:]]+|/Users/[^/[:space:]]+)' "$strings_file"; then fail "user-specific absolute path found"; fi
+absolute_paths="$tmp/absolute-paths.txt"
+grep -Eo '(/home/[^[:space:]"'"'"']+|/Users/[^[:space:]"'"'"']+)' "$strings_file" | sort -u > "$absolute_paths" || true
+# libvosk.so distributed by upstream contains compiler source paths from its
+# historical CI build. They are third-party build metadata, not local user data.
+awk '$0 !~ ("^/" "home/shmyrev/travis/vosk-api/")' "$absolute_paths" > "$tmp/private-absolute-paths.txt" || true
+if [[ -s "$tmp/private-absolute-paths.txt" ]]; then
+  cat "$tmp/private-absolute-paths.txt" >&2
+  fail "user-specific absolute path found"
+fi
 provenance_re='JA''DX|decom''pil|reverse[ -]engineer''ing|official LOO''I|original LOO''I|Tangible''Future|sooper''chargeforbots|splatty''doesstuff'
 if grep -Eiq "$provenance_re" "$strings_file"; then fail "private/research provenance marker found"; fi
 

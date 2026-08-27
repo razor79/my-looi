@@ -31,6 +31,11 @@ import {
   resample16kTo24k,
 } from "./realtime-config";
 import { wakewordService, type WakewordDetection } from "./wakeword";
+import {
+  executeRealtimePhysicalCommand,
+  parseRealtimePhysicalCommand,
+  type RealtimePhysicalCommand,
+} from "./realtime-physical-command";
 
 const WS_OPEN_TIMEOUT_MS = 9_000;
 const CAPTURE_RELEASE_SETTLE_MS = 220;
@@ -74,7 +79,15 @@ export class RealtimePcmConversationService {
   private userTranscriptItems = new Set<string>();
   private handledToolCalls = new Set<string>();
   private toolCallsInFlight = 0;
+  private localPhysicalCommandInFlight = false;
   private generationActive = false;
+  private currentResponseId: string | null = null;
+  private suppressedResponseIds = new Set<string>();
+  private suppressNextResponseForPhysicalCommand = false;
+  private suppressResponseWithoutId = false;
+  private awaitingTurnTranscript = false;
+  private pendingResponseAudio: string[] = [];
+  private pendingResponseAudioDone = false;
   private playbackActive = false;
   private playbackInterrupted = false;
   private assistantItemId: string | null = null;
@@ -99,6 +112,13 @@ export class RealtimePcmConversationService {
     this.active = true;
     this.configured = false;
     this.generationActive = false;
+    this.currentResponseId = null;
+    this.suppressedResponseIds.clear();
+    this.suppressNextResponseForPhysicalCommand = false;
+    this.suppressResponseWithoutId = false;
+    this.awaitingTurnTranscript = false;
+    this.pendingResponseAudio = [];
+    this.pendingResponseAudioDone = false;
     this.playbackActive = false;
     this.playbackInterrupted = false;
     this.assistantItemId = null;
@@ -109,6 +129,7 @@ export class RealtimePcmConversationService {
     this.userTranscriptItems.clear();
     this.handledToolCalls.clear();
     this.toolCallsInFlight = 0;
+    this.localPhysicalCommandInFlight = false;
     this.lastCaptureRmsLogAt = 0;
     this.sessionModel = useUserStore.getState().preferences.realtimeModelId;
 
@@ -284,6 +305,13 @@ export class RealtimePcmConversationService {
     this.active = false;
     this.configured = false;
     this.generationActive = false;
+    this.currentResponseId = null;
+    this.suppressedResponseIds.clear();
+    this.suppressNextResponseForPhysicalCommand = false;
+    this.suppressResponseWithoutId = false;
+    this.awaitingTurnTranscript = false;
+    this.pendingResponseAudio = [];
+    this.pendingResponseAudioDone = false;
     this.playbackActive = false;
     this.pendingPreroll = null;
     this.sessionMemoryContext = undefined;
@@ -502,16 +530,29 @@ export class RealtimePcmConversationService {
     }
     if (type === "response.created") {
       this.generationActive = true;
+      this.currentResponseId = this.responseIdFromEvent(event) || null;
       this.responseDone = false;
       this.responseStatus = "unknown";
       this.playbackInterrupted = false;
       this.assistantTranscript = "";
       this.assistantItemId = null;
       this.assistantContentIndex = 0;
+      if (this.suppressNextResponseForPhysicalCommand) {
+        this.suppressNextResponseForPhysicalCommand = false;
+        if (this.currentResponseId) this.suppressedResponseIds.add(this.currentResponseId);
+        else this.suppressResponseWithoutId = true;
+        this.send({ type: "response.cancel" });
+        recordDiagnosticEvent("realtime", "pcm-response-suppressed-for-physical-command", {
+          responseIdKnown: Boolean(this.currentResponseId),
+          phase: "response-created-after-command",
+        });
+        return;
+      }
       try { getRealtimePcmAudioModule().beginPlayback(); } catch {}
       return;
     }
     if (type === "response.output_item.added") {
+      if (this.isSuppressedResponseEvent(event)) return;
       const item = event.item;
       if (item?.type === "message" && item?.role === "assistant") {
         this.assistantItemId = String(item.id ?? "") || this.assistantItemId;
@@ -519,34 +560,47 @@ export class RealtimePcmConversationService {
       return;
     }
     if (type === "response.content_part.added") {
+      if (this.isSuppressedResponseEvent(event)) return;
       const itemId = String(event.item_id ?? "").trim();
       if (itemId) this.assistantItemId = itemId;
       if (typeof event.content_index === "number") this.assistantContentIndex = event.content_index;
       return;
     }
     if (type === "response.output_audio.delta") {
+      if (this.isSuppressedResponseEvent(event)) return;
       const delta = String(event.delta ?? "");
       if (!delta) return;
       const itemId = String(event.item_id ?? "").trim();
       if (itemId) this.assistantItemId = itemId;
       if (typeof event.content_index === "number") this.assistantContentIndex = event.content_index;
+      if (this.awaitingTurnTranscript) {
+        this.pendingResponseAudio.push(delta);
+        return;
+      }
       if (!this.playbackActive) this.markPlaybackStarted();
       getRealtimePcmAudioModule().enqueuePlayback(delta);
       return;
     }
     if (type === "response.output_audio.done") {
+      if (this.isSuppressedResponseEvent(event)) return;
+      if (this.awaitingTurnTranscript) {
+        this.pendingResponseAudioDone = true;
+        return;
+      }
       getRealtimePcmAudioModule().finishPlayback();
       return;
     }
     if (type === "response.output_audio_transcript.delta") {
+      if (this.isSuppressedResponseEvent(event)) return;
       this.assistantTranscript += String(event.delta ?? "");
-      useConversationStore.getState().setStreamingText(this.assistantTranscript);
+      if (!this.awaitingTurnTranscript) useConversationStore.getState().setStreamingText(this.assistantTranscript);
       return;
     }
     if (type === "response.output_audio_transcript.done") {
+      if (this.isSuppressedResponseEvent(event)) return;
       const transcript = String(event.transcript ?? "").trim();
       if (transcript) this.assistantTranscript = transcript;
-      useConversationStore.getState().setStreamingText(this.assistantTranscript);
+      if (!this.awaitingTurnTranscript) useConversationStore.getState().setStreamingText(this.assistantTranscript);
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
@@ -574,6 +628,7 @@ export class RealtimePcmConversationService {
       store.setListening(false);
       store.setProcessing(true);
       useUserStore.getState().setVoiceState("processing");
+      this.startTranscriptPlaybackGate();
       recordDiagnosticEvent("realtime", "pcm-speech-stopped");
       return;
     }
@@ -590,23 +645,164 @@ export class RealtimePcmConversationService {
           length: transcript.length,
           recognizedText: transcript,
         });
+
+        const physicalCommand = parseRealtimePhysicalCommand(transcript);
+        if (physicalCommand) {
+          this.localPhysicalCommandInFlight = true;
+          this.discardTranscriptPlaybackGate("local-physical-command");
+          this.suppressPhysicalCommandResponse();
+          if (this.playbackActive) {
+            this.playbackInterrupted = true;
+            this.stopAndTruncatePlayback("local-physical-command");
+          } else if (this.assistantItemId) {
+            this.send({
+              type: "conversation.item.truncate",
+              item_id: this.assistantItemId,
+              content_index: this.assistantContentIndex,
+              audio_end_ms: 0,
+            });
+          }
+          this.assistantTranscript = "";
+          store.setStreamingText("");
+          store.setSpeaking(false);
+          store.setListening(false);
+          store.setProcessing(true);
+          useUserStore.getState().setVoiceState("processing");
+          void this.executeLocalPhysicalCommand(physicalCommand, transcript);
+        } else {
+          this.releaseTranscriptPlaybackGate("transcript-normal");
+        }
+      } else {
+        this.releaseTranscriptPlaybackGate(transcript ? "transcript-duplicate" : "transcript-empty");
       }
       return;
     }
+    if (type === "conversation.item.input_audio_transcription.failed") {
+      recordDiagnosticEvent("realtime", "pcm-input-transcript-failed", {
+        error: String(event.error?.message ?? event.error?.code ?? "unknown"),
+      });
+      this.releaseTranscriptPlaybackGate("transcript-failed");
+      return;
+    }
     if (type === "response.output_item.done" && event.item?.type === "function_call") {
+      if (this.isSuppressedResponseEvent(event)) return;
       void this.executeToolCall(event.item);
       return;
     }
     if (type === "response.done") {
-      this.generationActive = false;
+      const responseId = this.responseIdFromEvent(event);
+      const suppressed = this.isSuppressedResponseEvent(event);
+      if (!responseId || responseId === this.currentResponseId) this.generationActive = false;
+      if (suppressed) {
+        if (responseId) this.suppressedResponseIds.delete(responseId);
+        else this.suppressResponseWithoutId = false;
+        if (!responseId || responseId === this.currentResponseId) this.currentResponseId = null;
+        recordDiagnosticEvent("realtime", "pcm-suppressed-response-done", {
+          responseIdKnown: Boolean(responseId),
+          status: String(event.response?.status ?? "unknown"),
+          commandStillRunning: this.localPhysicalCommandInFlight,
+        });
+        return;
+      }
       this.responseDone = true;
       this.responseStatus = String(event.response?.status ?? "unknown");
       const hasFunctionCall = Array.isArray(event.response?.output) &&
         event.response.output.some((item: any) => item?.type === "function_call");
       if (hasFunctionCall || this.toolCallsInFlight > 0) return;
+      if (this.awaitingTurnTranscript) return;
       if (!this.playbackActive) await this.finalizeAssistantTurn();
       return;
     }
+  }
+
+  private responseIdFromEvent(event: RealtimeEvent): string {
+    return String(event.response_id ?? event.response?.id ?? "").trim();
+  }
+
+  private isSuppressedResponseEvent(event: RealtimeEvent): boolean {
+    const responseId = this.responseIdFromEvent(event);
+    if (responseId) return this.suppressedResponseIds.has(responseId);
+    if (this.suppressResponseWithoutId) return true;
+    return Boolean(this.currentResponseId && this.suppressedResponseIds.has(this.currentResponseId));
+  }
+
+  private suppressPhysicalCommandResponse(): void {
+    if (this.generationActive) {
+      if (this.currentResponseId) this.suppressedResponseIds.add(this.currentResponseId);
+      else this.suppressResponseWithoutId = true;
+      this.send({ type: "response.cancel" });
+      recordDiagnosticEvent("realtime", "pcm-response-suppressed-for-physical-command", {
+        responseIdKnown: Boolean(this.currentResponseId),
+        phase: "transcript-classified",
+      });
+      return;
+    }
+
+    this.suppressNextResponseForPhysicalCommand = true;
+    recordDiagnosticEvent("realtime", "pcm-response-suppression-armed-for-physical-command");
+  }
+
+  private startTranscriptPlaybackGate(): void {
+    this.awaitingTurnTranscript = true;
+    this.pendingResponseAudio = [];
+    this.pendingResponseAudioDone = false;
+    recordDiagnosticEvent("realtime", "pcm-transcript-playback-gate-armed");
+  }
+
+  private releaseTranscriptPlaybackGate(source: string): void {
+    if (!this.awaitingTurnTranscript) return;
+    this.awaitingTurnTranscript = false;
+    const chunks = this.pendingResponseAudio;
+    const audioDone = this.pendingResponseAudioDone;
+    this.pendingResponseAudio = [];
+    this.pendingResponseAudioDone = false;
+
+    if (chunks.length > 0) {
+      if (!this.playbackActive) this.markPlaybackStarted();
+      const audio = getRealtimePcmAudioModule();
+      for (const delta of chunks) audio.enqueuePlayback(delta);
+      if (audioDone) audio.finishPlayback();
+    } else if (audioDone) {
+      try { getRealtimePcmAudioModule().finishPlayback(); } catch {}
+    }
+    if (this.assistantTranscript) useConversationStore.getState().setStreamingText(this.assistantTranscript);
+    recordDiagnosticEvent("realtime", "pcm-transcript-playback-gate-released", {
+      source,
+      bufferedChunks: chunks.length,
+      responseDone: this.responseDone,
+    });
+    if (this.responseDone && !this.playbackActive) void this.finalizeAssistantTurn();
+  }
+
+  private discardTranscriptPlaybackGate(source: string): void {
+    const bufferedChunks = this.pendingResponseAudio.length;
+    this.awaitingTurnTranscript = false;
+    this.pendingResponseAudio = [];
+    this.pendingResponseAudioDone = false;
+    recordDiagnosticEvent("realtime", "pcm-transcript-playback-gate-discarded", {
+      source,
+      bufferedChunks,
+    });
+  }
+
+  private async executeLocalPhysicalCommand(physicalCommand: RealtimePhysicalCommand, transcript: string): Promise<void> {
+    const result = await executeRealtimePhysicalCommand(physicalCommand, transcript);
+    const store = useConversationStore.getState();
+    if (result.acknowledgement) {
+      store.addMessage({ role: "assistant", content: result.acknowledgement });
+      if (this.sessionId) mirrorSessionMessage(this.sessionId, { role: "assistant", content: result.acknowledgement });
+      store.setStreamingText(result.acknowledgement);
+    }
+    this.localPhysicalCommandInFlight = false;
+    store.setSpeaking(false);
+    store.setProcessing(false);
+    store.setListening(this.active);
+    useUserStore.getState().setVoiceState(this.active ? "listening" : "sleeping");
+    recordDiagnosticEvent("realtime", "pcm-local-physical-command-finished", {
+      commandKind: result.commandKind,
+      ok: result.ok,
+      sessionStillActive: this.active,
+    });
   }
 
   private markPlaybackStarted(): void {

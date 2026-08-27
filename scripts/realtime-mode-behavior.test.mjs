@@ -61,7 +61,7 @@ assert.equal(update.session.audio.input.turn_detection.create_response, true);
 assert.equal(update.session.audio.input.turn_detection.interrupt_response, true);
 assert.ok(update.session.instructions.includes("default language for normal replies: Russian"));
 assert.ok(update.session.instructions.includes("expected input/listening language is Russian"));
-assert.ok(update.session.instructions.includes("Realtime does not control physical movement"));
+assert.ok(update.session.instructions.includes("may be intercepted and executed deterministically by the local app"));
 assert.ok(update.session.instructions.includes("accepted nickname"));
 assert.ok(update.session.instructions.includes("Пользователь любит роботов."));
 
@@ -113,6 +113,11 @@ assert.ok(storeSource.includes('return mode === "realtime" ? "realtime" : "realt
 
 const explicit = compileTs("src/voice/explicit-robot-command.ts");
 assert.deepEqual(explicit.parseExplicitRobotCommand("Макс, вперед"), { kind: "move", direction: "forward" });
+assert.deepEqual(explicit.parseExplicitRobotCommand("Луни, назад"), { kind: "move", direction: "backward" }, "Realtime transcription alias must stay narrow and deterministic");
+assert.deepEqual(explicit.parseExplicitRobotCommand("Луї, рухайся вперед"), { kind: "move", direction: "forward" });
+assert.deepEqual(explicit.parseExplicitRobotCommand("LOOI, move backward"), { kind: "move", direction: "backward" });
+assert.deepEqual(explicit.parseExplicitRobotCommand("Robot, turn left"), { kind: "turn", direction: "left", degrees: 90 });
+assert.deepEqual(explicit.parseExplicitRobotCommand("LOOI, nod"), { kind: "gesture", gesture: "nod", count: 1 });
 assert.deepEqual(explicit.parseExplicitRobotCommand("Max, dance"), { kind: "dance" });
 assert.equal(explicit.parseExplicitRobotCommand("Давай, Макс, вперед"), null, "address must remain utterance-initial");
 

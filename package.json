@@ -1,7 +1,7 @@
 {
   "name": "my-looi",
   "main": "expo-router/entry",
-  "version": "2.1.110",
+  "version": "2.1.112",
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
     "@siteed/audio-studio": "3.2.1",
@@ -59,7 +59,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node scripts/anti-regression-check.mjs && node scripts/public-repository-audit.mjs && node scripts/local-memory-behavior.test.mjs && node scripts/memory-retrieval-startup-behavior.test.mjs && node scripts/natural-memory-extraction-behavior.test.mjs && node scripts/backup-storage-access-foundation.test.mjs && node scripts/realtime-mode-behavior.test.mjs && node scripts/v2.1.107-typescript-build-regression.test.mjs && node scripts/v2.1.108-voice-language-switch-regression.test.mjs && node scripts/v2.1.109-realtime-model-voice-settings-regression.test.mjs && node scripts/v2.1.110-publication-model-list-regression.test.mjs",
+    "test": "node scripts/anti-regression-check.mjs && node scripts/public-repository-audit.mjs && node scripts/local-memory-behavior.test.mjs && node scripts/memory-retrieval-startup-behavior.test.mjs && node scripts/natural-memory-extraction-behavior.test.mjs && node scripts/backup-storage-access-foundation.test.mjs && node scripts/realtime-mode-behavior.test.mjs && node scripts/v2.1.107-typescript-build-regression.test.mjs && node scripts/v2.1.108-voice-language-switch-regression.test.mjs && node scripts/v2.1.109-realtime-model-voice-settings-regression.test.mjs && node scripts/v2.1.110-publication-model-list-regression.test.mjs && node scripts/v2.1.111-realtime-physical-command-routing-regression.test.mjs && node scripts/v2.1.112-physical-command-response-suppression-regression.test.mjs",
     "repo:public-audit": "node scripts/public-repository-audit.mjs",
     "voice:accept-device": "node scripts/run-voice-device-acceptance.mjs",
     "motion:safety-test": "node scripts/motion-deadman-behavior.test.mjs",
@@ -81,7 +81,9 @@
     "runtime:2.1.107-test": "node scripts/v2.1.107-typescript-build-regression.test.mjs",
     "runtime:2.1.108-test": "node scripts/v2.1.108-voice-language-switch-regression.test.mjs",
     "runtime:2.1.109-test": "node scripts/v2.1.109-realtime-model-voice-settings-regression.test.mjs",
-    "runtime:2.1.110-test": "node scripts/v2.1.110-publication-model-list-regression.test.mjs"
+    "runtime:2.1.111-test": "node scripts/v2.1.111-realtime-physical-command-routing-regression.test.mjs",
+    "runtime:2.1.110-test": "node scripts/v2.1.110-publication-model-list-regression.test.mjs",
+    "runtime:2.1.112-test": "node scripts/v2.1.112-physical-command-response-suppression-regression.test.mjs"
   },
   "private": true,
   "expo": {

@@ -10,11 +10,11 @@ const settings = readFileSync(join(root, "app/(tabs)/settings.tsx"), "utf8");
 const build = readFileSync(join(root, "scripts/build-android-apk.sh"), "utf8");
 
 assert.equal(pkg.name, "my-looi");
-assert.equal(pkg.version, "2.1.110");
+assert.ok(/^2\.1\.(?:11[0-9]|[2-9][0-9]{2,})$/.test(pkg.version), `expected My LOOI 2.1.110+ release, got ${pkg.version}`);
 assert.equal(app.expo.name, "My LOOI");
 assert.equal(app.expo.slug, "my-looi");
-assert.equal(app.expo.version, "2.1.110");
-assert.equal(app.expo.android.versionCode, 110);
+assert.equal(app.expo.version, pkg.version);
+assert.ok(app.expo.android.versionCode >= 110, "public My LOOI release must retain monotonically increasing Android versionCode");
 // Preserve Android update/data compatibility with existing installs.
 assert.equal(app.expo.android.package, "com.anonymous.superlooiapp");
 
@@ -35,4 +35,4 @@ assert.equal(existsSync(join(root, "demo.jpg")), false, "private/home demo photo
 assert.equal(existsSync(join(root, "assets/diagnostics")), false, "unknown diagnostic voice fixtures must not be public");
 assert.match(build, /my-looi-arm64\.apk/);
 
-console.log("v2.1.110 publication/model-list regression: PASS");
+console.log("Publication/model-list regression: PASS");

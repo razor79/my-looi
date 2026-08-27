@@ -38,6 +38,7 @@
 
 - Local BLE robot discovery and saved-device reconnect.
 - Movement, head position, light, dock-state, and low-level transport support.
+- Deterministic addressed physical voice commands in the primary Realtime PCM path; forward/backward motion stays time-bounded while Realtime owns the microphone.
 - Emergency STOP command path.
 - Movement deadman protection.
 - Directional cliff-safety checks.

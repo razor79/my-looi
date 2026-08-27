@@ -7,12 +7,12 @@ export type ExplicitRobotCommand =
 
 // Narrow STT recovery aliases are accepted only in the address position and
 // still require the remainder to parse as a deterministic physical command.
-const PREFIX_RE = /^\s*((?:луи|луй|луї|луі|лу\s*[,.;:\-–—]?\s*и)|looi|макс|max|робот|robot|уи|уй|рога)\s*[,!:\-–—]?\s+(.+)$/i;
+const PREFIX_RE = /^\s*((?:луи|луй|луни|луї|луі|лу\s*[,.;:\-–—]?\s*и)|looi|макс|max|робот|robot|уи|уй|рога)\s*[,!:\-–—]?\s+(.+)$/i;
 export function hasExplicitRobotAddress(text: string): boolean {
   return PREFIX_RE.test(text.trim());
 }
 
-const MOVE_VERB_RE = /(?:^|\s)(?:едь|езжай|поедь|проедь|двигайся|двинься|повернись|поверни)(?=$|[\s.,!?])/i;
+const MOVE_VERB_RE = /(?:^|\s)(?:едь|езжай|поедь|проедь|двигайся|двинься|повернись|поверни|їдь|поїдь|рухайся|повернись|поверни|go|drive|move|turn)(?=$|[\s.,!?])/iu;
 
 function isBareDirectionCommand(command: string, variants: string): boolean {
   return new RegExp(`^(?:${variants})(?:\\s+(?:пожалуйста|немного|чуть(?:-чуть)?))?[.!?]*$`, "i").test(command.trim());
@@ -33,7 +33,7 @@ function normalizeKnownGluedRobotAddress(text: string): string {
   // (for example "Луикивни три раза"). Only split known physical-command stems so
   // arbitrary conversational words beginning with "луи" are not broadened.
   return text.trim().replace(
-    /^(луи|луй|луї|луі|макс|max|робот|robot|уи|уй|рога)(?=(?:кивни|кивай|стоп|стой|спи|засни|потанцуй|потанцюй|танцуй|танцюй|dance|впер[её]д|назад|влево|вправо|налево|направо|развернись))/iu,
+    /^(луи|луй|луни|луї|луі|макс|max|робот|robot|уи|уй|рога)(?=(?:кивни|кивай|стоп|стой|спи|засни|потанцуй|потанцюй|танцуй|танцюй|dance|впер[её]д|назад|влево|вправо|налево|направо|развернись))/iu,
     "$1 "
   );
 }
@@ -59,11 +59,11 @@ export function parseExplicitRobotCommand(text: string): ExplicitRobotCommand | 
 
   const command = stripNaturalCommandLeadIns(match[2].trim().toLowerCase());
 
-  if (/(?:^|\s)(?:спи|засни|засыпай|иди\s+спать|ложись\s+спать)(?=$|[\s.,!?])/i.test(command)) {
+  if (/(?:^|\s)(?:спи|засни|засыпай|иди\s+спать|ложись\s+спать|засинай|іди\s+спати|sleep|go\s+to\s+sleep|fall\s+asleep)(?=$|[\s.,!?])/iu.test(command)) {
     return { kind: "sleep" };
   }
 
-  if (/(?:^|\s)(?:кивни|кивай|сделай\s+кивок)(?=$|[\s.,!?])/i.test(command)) {
+  if (/(?:^|\s)(?:кивни|кивай|сделай\s+кивок|підтверди|зроби\s+кивок|nod|nod\s+your\s+head|confirm)(?=$|[\s.,!?])/iu.test(command)) {
     return { kind: "gesture", gesture: "nod", count: parseRequestedNodCount(command) };
   }
 
@@ -71,13 +71,13 @@ export function parseExplicitRobotCommand(text: string): ExplicitRobotCommand | 
     return { kind: "dance" };
   }
 
-  if (/(?:^|\s)(?:стоп|стой|остановись|останови\s+движение)(?=$|[\s.,!?])/i.test(command)) {
+  if (/(?:^|\s)(?:стоп|стой|остановись|останови\s+движение|стій|зупинись|зупини|stop|halt)(?=$|[\s.,!?])/iu.test(command)) {
     return { kind: "move", direction: "stop" };
   }
 
   if (
-    /(?:^|\s)(?:развернись|разверни|повернись\s+обратно|поверни\s+обратно)(?=$|[\s.,!?])/i.test(command) ||
-    /(?:^|\s)(?:180|сто\s+восемьдесят)\s*(?:градус(?:ов|а)?|°)?(?=$|[\s.,!?])/i.test(command)
+    /(?:^|\s)(?:развернись|разверни|повернись\s+обратно|поверни\s+обратно|розвернись|розверни|повернись\s+назад|turn\s+around|make\s+a\s+u\s*turn|u\s*turn)(?=$|[\s.,!?])/iu.test(command) ||
+    /(?:^|\s)(?:180|сто\s+восемьдесят|сто\s+вісімдесят|one\s+eighty)\s*(?:градус(?:ов|а)?|градус(?:ів|и)?|degrees?|°)?(?=$|[\s.,!?])/iu.test(command)
   ) {
     // Clockwise/right is the deterministic default for a 180° turn.
     return { kind: "turn", direction: "right", degrees: 180 };
@@ -86,26 +86,26 @@ export function parseExplicitRobotCommand(text: string): ExplicitRobotCommand | 
   const hasMoveVerb = MOVE_VERB_RE.test(command);
 
   if (
-    (hasMoveVerb && /(?:^|\s)(?:впер[её]д|прямо)(?=$|[\s.,!?])/i.test(command)) ||
-    isBareDirectionCommand(command, "впер[её]д|прямо")
+    (hasMoveVerb && /(?:^|\s)(?:впер[её]д|вперед|прямо|forward|ahead|straight)(?=$|[\s.,!?])/iu.test(command)) ||
+    isBareDirectionCommand(command, "впер[её]д|вперед|прямо|forward|ahead|straight")
   ) {
     return { kind: "move", direction: "forward" };
   }
   if (
-    (hasMoveVerb && /(?:^|\s)(?:назад|обратно)(?=$|[\s.,!?])/i.test(command)) ||
-    isBareDirectionCommand(command, "назад|обратно")
+    (hasMoveVerb && /(?:^|\s)(?:назад|обратно|back|backward|reverse)(?=$|[\s.,!?])/iu.test(command)) ||
+    isBareDirectionCommand(command, "назад|обратно|back|backward|reverse")
   ) {
     return { kind: "move", direction: "backward" };
   }
   if (
-    (hasMoveVerb && /(?:^|\s)(?:влево|налево|левее)(?=$|[\s.,!?])/i.test(command)) ||
-    isBareDirectionCommand(command, "влево|налево|левее")
+    (hasMoveVerb && /(?:^|\s)(?:влево|налево|левее|вліво|наліво|ліворуч|left)(?=$|[\s.,!?])/iu.test(command)) ||
+    isBareDirectionCommand(command, "влево|налево|левее|вліво|наліво|ліворуч|left")
   ) {
     return { kind: "turn", direction: "left", degrees: 90 };
   }
   if (
-    (hasMoveVerb && /(?:^|\s)(?:вправо|направо|правее)(?=$|[\s.,!?])/i.test(command)) ||
-    isBareDirectionCommand(command, "вправо|направо|правее")
+    (hasMoveVerb && /(?:^|\s)(?:вправо|направо|правее|праворуч|right)(?=$|[\s.,!?])/iu.test(command)) ||
+    isBareDirectionCommand(command, "вправо|направо|правее|праворуч|right")
   ) {
     return { kind: "turn", direction: "right", degrees: 90 };
   }

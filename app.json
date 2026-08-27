@@ -2,7 +2,7 @@
   "expo": {
     "name": "My LOOI",
     "slug": "my-looi",
-    "version": "2.1.110",
+    "version": "2.1.112",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "superlooiapp",
@@ -21,7 +21,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.superlooiapp",
-      "versionCode": 110
+      "versionCode": 112
     },
     "web": {
       "bundler": "metro",
