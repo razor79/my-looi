@@ -19,6 +19,7 @@ import {
   markBackupStorageRestoreNow,
   saveBackupStorageFolder,
 } from "./backup-storage-settings";
+import { getDiagnosticStorageSettings } from "../diagnostics/diagnostic-storage-settings";
 
 export const LOCAL_MEMORY_BACKUP_FILE_NAME = "super-looi-memory-backup-v1.json";
 const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
@@ -49,7 +50,8 @@ export async function chooseLocalBackupFolder(): Promise<BackupStorageFolder> {
     throw new Error("Выбранная папка не дала LOOI постоянный доступ на чтение и запись");
   }
   saveBackupStorageFolder(folder);
-  if (previous && previous.uri !== folder.uri) {
+  const diagnosticFolderUri = getDiagnosticStorageSettings().folder?.uri;
+  if (previous && previous.uri !== folder.uri && previous.uri !== diagnosticFolderUri) {
     void BackupStorageAccess.releaseFolder(previous.uri).catch(() => undefined);
   }
   recordDiagnosticEvent("memory", "backup-storage-folder-selected", {
@@ -79,7 +81,10 @@ export async function refreshLocalBackupFolder(): Promise<BackupStorageFolder | 
 export async function forgetLocalBackupFolder(): Promise<void> {
   const current = getBackupStorageLocalSettings().folder;
   try {
-    if (current) await BackupStorageAccess.releaseFolder(current.uri);
+    const diagnosticFolderUri = getDiagnosticStorageSettings().folder?.uri;
+    if (current && current.uri !== diagnosticFolderUri) {
+      await BackupStorageAccess.releaseFolder(current.uri);
+    }
   } finally {
     clearBackupStorageFolder();
   }

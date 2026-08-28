@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-na
 import { useConversationStore } from "../store/conversation";
 import { useUserStore } from "../store/user";
 import { looiTheme } from "./looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
 
 async function getVoicePerceiver() {
   const { voiceRuntime } = await import("../perceivers/voice-runtime");
@@ -14,6 +15,7 @@ export function VoiceButton() {
   const isListening = useConversationStore((s) => s.isListening);
   const isProcessing = useConversationStore((s) => s.isProcessing);
   const voiceState = useUserStore((s) => s.voiceState);
+  const { t } = useUiText();
   const scale = useSharedValue(1);
   const pressTriggeredVoiceRef = useRef(false);
 
@@ -57,7 +59,13 @@ export function VoiceButton() {
     }
   };
 
-  const label = getLabel(isListening, isProcessing, voiceState);
+  const label = isListening
+    ? t("voiceButton.release")
+    : isProcessing
+      ? t("voiceButton.processing")
+      : voiceState === "speaking"
+        ? t("voiceButton.speaking")
+        : t("voiceButton.hold");
   const active = isListening || isProcessing;
 
   return (
@@ -83,13 +91,6 @@ export function VoiceButton() {
       <Text style={styles.label}>{label}</Text>
     </View>
   );
-}
-
-function getLabel(isListening: boolean, isProcessing: boolean, voiceState: string) {
-  if (isListening) return "Отпусти, чтобы закончить";
-  if (isProcessing) return "Обрабатываю…";
-  if (voiceState === "speaking") return "LOOI говорит…";
-  return "Удерживай и говори";
 }
 
 const styles = StyleSheet.create({

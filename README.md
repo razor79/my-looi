@@ -8,7 +8,8 @@ The project is community-developed and is not affiliated with or endorsed by the
 
 - **Realtime PCM voice** with app-owned microphone capture and playback.
 - **Natural interruption / barge-in**: speaking while LOOI talks stops playback and truncates the unheard response correctly.
-- **Multilingual conversation** in Ukrainian, English and Russian, including voice-requested language switching and one-off translation/pronunciation requests.
+- **Localized Android interface** in Ukrainian, English and Russian, with an independent interface-language preference.
+- **Multilingual conversation** in Ukrainian, English and Russian, including independent listening/response preferences, voice-requested language switching, and one-off translation/pronunciation requests.
 - **Dynamic OpenAI Realtime model selection** based on the models available to the user's API key.
 - **Realtime voice selection with preview**, persisted locally.
 - **Local memory and conversation history** stored in SQLite on the Android device.
@@ -16,8 +17,10 @@ The project is community-developed and is not affiliated with or endorsed by the
 - **BLE reconnect and deterministic robot control** with voice-addressed movement and safety guardrails.
 - **Hard privacy suspend** when the app is backgrounded or the screen is off.
 - **No companion backend required** for normal operation.
+- **Manual diagnostics export** through the Android share sheet (including Google Drive when installed) or a persistently selected local Android Documents/SAF folder. My LOOI does not request direct Google Drive access.
+- **Manual GitHub Releases update flow** with APK checksum/package/version/signing-certificate verification before Android installation.
 
-See [FEATURES.md](FEATURES.md) for a fuller feature list and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
+See [FEATURES.md](FEATURES.md) for a fuller feature list, [CHANGELOG.md](CHANGELOG.md) for release notes, and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
 
 ## Requirements
 
@@ -39,9 +42,9 @@ corepack pnpm exec tsc --noEmit
 corepack pnpm test
 ```
 
-For an Android release build, see [BUILDING.md](BUILDING.md). Before publishing source or APK files, follow [docs/releasing.md](docs/releasing.md).
+For an Android release build, see [BUILDING.md](BUILDING.md). Repeated archive builds can use the reusable `scripts/build-my-looi.sh` helper; normal mode preserves safe incremental state and `--fresh` performs a clean control build. Before publishing source or APK files, follow [docs/releasing.md](docs/releasing.md).
 
-The OpenAI API key is entered inside the app and stored with Android SecureStore. Do not place API keys in `.env` or source files.
+The OpenAI API key is entered inside the app and stored with Android SecureStore. Do not place API keys in `.env` or source files. The Android application ID for the standalone My LOOI app is `io.github.razor79.mylooi`.
 
 ## Repository structure
 
@@ -76,7 +79,7 @@ Major steps in that evolution included:
 - moving persistent memory and conversation history onto the Android device with SQLite;
 - removing the required companion backend from normal operation;
 - developing local wake, emergency-command, BLE reconnect, movement safety, and privacy lifecycle behavior;
-- adding Ukrainian, English and Russian conversation, persistent language preferences, selectable Realtime models, and selectable voices.
+- adding Ukrainian, English and Russian interface localization and conversation, independent persistent UI/listening/response language preferences, selectable Realtime models, and selectable voices.
 
 Because the current architecture and product goals differ substantially from the original fork, My LOOI is now maintained as a standalone project with a new public Git history, while preserving acknowledgement of the projects that helped it get started.
 

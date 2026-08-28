@@ -22,6 +22,7 @@ export type DiagnosticCategory =
   | "memory"
   | "realtime"
   | "robot"
+  | "update"
   | "diagnostic";
 
 export type DiagnosticValue = string | number | boolean | null | undefined;

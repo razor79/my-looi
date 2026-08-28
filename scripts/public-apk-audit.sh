@@ -43,8 +43,21 @@ if [[ -s "$tmp/private-absolute-paths.txt" ]]; then
   cat "$tmp/private-absolute-paths.txt" >&2
   fail "user-specific absolute path found"
 fi
+# Provenance markers must be scanned in first-party/runtime payloads, but not in
+# bundled Vosk graph data. Upstream graph vocabulary and binary FST payloads can
+# contain benign or accidental printable strings that overlap the private-source
+# marker set. Keep secret and absolute-path scans above global; only this
+# provenance check excludes the known third-party graph-data subtree.
+provenance_strings_file="$tmp/provenance-strings.txt"
+: > "$provenance_strings_file"
+while IFS= read -r -d '' f; do
+  case "$f" in
+    */assets/vosk-command-*/graph/*) continue ;;
+  esac
+  strings "$f" 2>/dev/null >> "$provenance_strings_file" || true
+done < <(find "$tmp/apk" -type f -print0)
 provenance_re='JA''DX|decom''pil|reverse[ -]engineer''ing|official LOO''I|original LOO''I|Tangible''Future|sooper''chargeforbots|splatty''doesstuff'
-if grep -Eiq "$provenance_re" "$strings_file"; then fail "private/research provenance marker found"; fi
+if grep -Eiq "$provenance_re" "$provenance_strings_file"; then fail "private/research provenance marker found"; fi
 
 # The app must use the public product name in packaged metadata/resources.
 if ! grep -Fq 'My LOOI' "$strings_file"; then

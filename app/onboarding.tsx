@@ -19,18 +19,22 @@ import {
 } from "@/src/setup/setup-readiness";
 import { setOnboardingCompleted, setOptionalCapabilitySkipped } from "@/src/setup/setup-storage";
 import { syncVoiceRuntime } from "@/src/core/app-bootstrap";
+import { useUserStore } from "@/src/store/user";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import { INTERFACE_LANGUAGE_OPTIONS } from "@/src/i18n/ui-language";
+import { getLocalizedModelDownloadStage, type UiStringKey } from "@/src/i18n/ui-strings";
 
-const setupSteps: { id: SetupStep; label: string }[] = [
-  { id: "openai", label: "OpenAI" },
-  { id: "models", label: "Модели" },
-  { id: "permissions", label: "Доступ" },
-  { id: "done", label: "Готово" },
+const setupSteps: { id: SetupStep; labelKey: UiStringKey | null }[] = [
+  { id: "openai", labelKey: null },
+  { id: "models", labelKey: "onboarding.step.models" },
+  { id: "permissions", labelKey: "onboarding.step.permissions" },
+  { id: "done", labelKey: "onboarding.step.done" },
 ];
 
 const modelCapabilities = [
-  { key: "asr", label: "Shared STT / wake fallback" },
-  { key: "kws", label: "Обращение LOOI / Макс" },
-  { key: "vad", label: "Локальный VAD" },
+  { key: "asr", labelKey: null },
+  { key: "kws", labelKey: "onboarding.addressModel" as UiStringKey },
+  { key: "vad", labelKey: "onboarding.localVad" as UiStringKey },
 ] as const;
 
 type AudioStudioPermissionModule = {
@@ -38,11 +42,11 @@ type AudioStudioPermissionModule = {
   requestPermissionsAsync?: () => Promise<{ granted?: boolean; status?: string }>;
 };
 
-async function requestMicrophoneAccess(): Promise<void> {
+async function requestMicrophoneAccess(deniedMessage: string): Promise<void> {
   const existing = await getRecordingPermissionsAsync();
   if (!existing.granted) {
     const next = await requestRecordingPermissionsAsync();
-    if (!next.granted) throw new Error("Нет доступа к микрофону");
+    if (!next.granted) throw new Error(deniedMessage);
   }
 
   const { AudioStudioModule } = await import("@siteed/audio-studio");
@@ -50,7 +54,7 @@ async function requestMicrophoneAccess(): Promise<void> {
   const studioExisting = await audioStudio.getPermissionsAsync?.();
   if (studioExisting && !studioExisting.granted) {
     const studioNext = await audioStudio.requestPermissionsAsync?.();
-    if (!studioNext?.granted) throw new Error("Нет доступа к микрофону");
+    if (!studioNext?.granted) throw new Error(deniedMessage);
   }
 }
 
@@ -68,6 +72,9 @@ export default function OnboardingScreen() {
   const [modelError, setModelError] = useState<string | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const { language: interfaceLanguageForText, t } = useUiText();
+  const interfaceLanguage = useUserStore((state) => state.preferences.interfaceLanguage);
+  const updatePreferences = useUserStore((state) => state.updatePreferences);
 
   const refreshReadiness = useCallback(async () => {
     setLoadingReadiness(true);
@@ -108,11 +115,11 @@ export default function OnboardingScreen() {
       await refreshReadiness();
       goToStep("models");
     } catch (error) {
-      setOpenAiError(error instanceof Error ? error.message : "Не удалось сохранить OpenAI API key");
+      setOpenAiError(error instanceof Error ? error.message : t("onboarding.keySaveFailed"));
     } finally {
       setOpenAiBusy(false);
     }
-  }, [goToStep, openAiBusy, openAiKeyInput, refreshReadiness]);
+  }, [goToStep, openAiBusy, openAiKeyInput, refreshReadiness, t]);
 
   const replaceOpenAiKey = useCallback(async () => {
     await clearOpenAiApiKey();
@@ -131,26 +138,27 @@ export default function OnboardingScreen() {
       await syncVoiceRuntime().catch(() => undefined);
       goToStep("permissions");
     } catch (error) {
-      setModelError(error instanceof Error ? error.message : "Не удалось загрузить модели");
+      console.warn("[Onboarding] Local model download failed:", error);
+      setModelError(t("onboarding.modelsDownloadFailed"));
     } finally {
       setModelBusy(false);
     }
-  }, [goToStep, modelBusy, refreshReadiness]);
+  }, [goToStep, modelBusy, refreshReadiness, t]);
 
   const requestMicrophone = useCallback(async () => {
     if (permissionBusy) return;
     setPermissionBusy(true);
     setPermissionError(null);
     try {
-      await requestMicrophoneAccess();
+      await requestMicrophoneAccess(t("onboarding.micDenied"));
       await refreshReadiness();
       await syncVoiceRuntime().catch(() => undefined);
     } catch (error) {
-      setPermissionError(error instanceof Error ? error.message : "Не удалось получить доступ к микрофону");
+      setPermissionError(error instanceof Error ? error.message : t("onboarding.micPermissionFailed"));
     } finally {
       setPermissionBusy(false);
     }
-  }, [permissionBusy, refreshReadiness]);
+  }, [permissionBusy, refreshReadiness, t]);
 
   const skipRobot = useCallback(async () => {
     setOptionalCapabilitySkipped("robot", true);
@@ -176,10 +184,27 @@ export default function OnboardingScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.eyebrow}>MY LOOI</Text>
-            <Text style={styles.title}>Локальная настройка</Text>
-            <Text style={styles.subtitle}>Голос идёт напрямую в OpenAI, а память и история живут на устройстве.</Text>
+            <Text style={styles.title}>{t("onboarding.localSetup")}</Text>
+            <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
           </View>
           <RobotFace mode="avatar" />
+        </View>
+
+        <View style={styles.interfaceLanguageRow}>
+          <Text style={styles.interfaceLanguageLabel}>{t("onboarding.interfaceLanguage")}</Text>
+          <View style={styles.interfaceLanguageChoices}>
+            {INTERFACE_LANGUAGE_OPTIONS.map((option) => (
+              <Pressable
+                key={option.id}
+                onPress={() => updatePreferences({ interfaceLanguage: option.id })}
+                style={[styles.languageChoice, interfaceLanguage === option.id && styles.languageChoiceSelected]}
+              >
+                <Text style={[styles.languageChoiceText, interfaceLanguage === option.id && styles.languageChoiceTextSelected]}>
+                  {option.shortLabel} · {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
 
         <View style={styles.steps}>
@@ -188,7 +213,7 @@ export default function OnboardingScreen() {
             const complete = isStepComplete(step.id, readiness);
             return (
               <Pressable key={step.id} onPress={() => goToStep(step.id)} style={[styles.step, active && styles.stepActive]}>
-                <Text style={[styles.stepText, active && styles.stepTextActive]}>{complete ? "✓ " : ""}{step.label}</Text>
+                <Text style={[styles.stepText, active && styles.stepTextActive]}>{complete ? "✓ " : ""}{step.labelKey ? t(step.labelKey) : "OpenAI"}</Text>
               </Pressable>
             );
           })}
@@ -199,12 +224,12 @@ export default function OnboardingScreen() {
 
           {activeStep === "openai" ? (
             <Section title="OpenAI Realtime">
-              <Text style={styles.help}>API key хранится только в Android SecureStore и используется для прямого подключения к OpenAI Realtime.</Text>
-              <StatusRow label="Ключ" ready={Boolean(readiness?.openAiKeyConfigured)} readyText="Сохранён" pendingText="Нужно настроить" />
+              <Text style={styles.help}>{t("onboarding.apiHelp")}</Text>
+              <StatusRow label={t("onboarding.key")} ready={Boolean(readiness?.openAiKeyConfigured)} readyText={t("onboarding.keySaved")} pendingText={t("onboarding.keyNeeded")} />
               <TextInput
                 value={openAiKeyInput}
                 onChangeText={setOpenAiKeyInput}
-                placeholder={readiness?.openAiKeyConfigured ? "Новый OpenAI API key" : "OpenAI API key"}
+                placeholder={readiness?.openAiKeyConfigured ? t("onboarding.newKey") : "OpenAI API key"}
                 placeholderTextColor={looiTheme.muted}
                 secureTextEntry
                 autoCapitalize="none"
@@ -213,53 +238,53 @@ export default function OnboardingScreen() {
               />
               {openAiError ? <Text style={styles.error}>{openAiError}</Text> : null}
               <View style={styles.actions}>
-                <PrimaryButton label={openAiBusy ? "Сохраняю…" : readiness?.openAiKeyConfigured ? "Заменить ключ" : "Сохранить ключ"} onPress={saveOpenAiKey} disabled={openAiBusy || !openAiKeyInput.trim()} />
-                {readiness?.openAiKeyConfigured ? <SecondaryButton label="Удалить ключ" onPress={replaceOpenAiKey} /> : null}
-                {readiness?.openAiKeyConfigured ? <SecondaryButton label="Продолжить" onPress={() => goToStep("models")} /> : null}
+                <PrimaryButton label={openAiBusy ? t("onboarding.saving") : readiness?.openAiKeyConfigured ? t("onboarding.replaceKey") : t("onboarding.saveKey")} onPress={saveOpenAiKey} disabled={openAiBusy || !openAiKeyInput.trim()} />
+                {readiness?.openAiKeyConfigured ? <SecondaryButton label={t("onboarding.deleteKey")} onPress={replaceOpenAiKey} /> : null}
+                {readiness?.openAiKeyConfigured ? <SecondaryButton label={t("common.continue")} onPress={() => goToStep("models")} /> : null}
               </View>
             </Section>
           ) : null}
 
           {activeStep === "models" ? (
-            <Section title="Локальные голосовые модели">
-              <Text style={styles.help}>Они нужны для wake word, локального VAD и shared fallback. Разговорный PCM-тракт остаётся OpenAI Realtime.</Text>
+            <Section title={t("onboarding.modelsTitle")}>
+              <Text style={styles.help}>{t("onboarding.modelsHelp")}</Text>
               {modelCapabilities.map((capability) => (
                 <StatusRow
                   key={capability.key}
-                  label={capability.label}
+                  label={capability.labelKey ? t(capability.labelKey) : t("onboarding.sharedStt")}
                   ready={Boolean(readiness?.modelStatus?.[capability.key].ready)}
-                  readyText="Готово"
-                  pendingText="Нужно установить"
+                  readyText={t("common.ready")}
+                  pendingText={t("onboarding.installNeeded")}
                 />
               ))}
-              {modelProgress ? <Text style={styles.help}>{modelProgress.label} · {Math.round(modelProgress.progress * 100)}%</Text> : null}
+              {modelProgress ? <Text style={styles.help}>{getLocalizedModelDownloadStage(interfaceLanguageForText, modelProgress.stage, modelProgress.label)} · {Math.round(modelProgress.progress * 100)}%</Text> : null}
               {modelError ? <Text style={styles.error}>{modelError}</Text> : null}
               <View style={styles.actions}>
-                {readiness?.modelsReady ? <PrimaryButton label="Продолжить" onPress={() => goToStep("permissions")} /> : <PrimaryButton label={modelBusy ? "Загружаю…" : "Скачать модели"} onPress={downloadModels} disabled={modelBusy} />}
+                {readiness?.modelsReady ? <PrimaryButton label={t("common.continue")} onPress={() => goToStep("permissions")} /> : <PrimaryButton label={modelBusy ? t("onboarding.downloading") : t("onboarding.downloadModels")} onPress={downloadModels} disabled={modelBusy} />}
               </View>
             </Section>
           ) : null}
 
           {activeStep === "permissions" ? (
-            <Section title="Микрофон и робот">
-              <StatusRow label="Микрофон" ready={Boolean(readiness?.microphoneReady)} readyText="Разрешён" pendingText="Нужно разрешение" />
-              {!readiness?.microphoneReady ? <PrimaryButton label={permissionBusy ? "Подождите…" : "Разрешить микрофон"} onPress={requestMicrophone} disabled={permissionBusy} /> : null}
-              <StatusRow label="Робот LOOI" ready={Boolean(readiness?.robotReady)} readyText="Подключён / сохранён" pendingText={readiness?.skipped.robot ? "Настроим позже" : "Необязательно"} />
-              {!readiness?.robotReady && !readiness?.skipped.robot ? <SecondaryButton label="Настроить робот позже" onPress={skipRobot} /> : null}
+            <Section title={t("onboarding.micRobot")}>
+              <StatusRow label={t("onboarding.microphone")} ready={Boolean(readiness?.microphoneReady)} readyText={t("onboarding.micAllowed")} pendingText={t("onboarding.permissionNeeded")} />
+              {!readiness?.microphoneReady ? <PrimaryButton label={permissionBusy ? t("common.wait") : t("onboarding.allowMic")} onPress={requestMicrophone} disabled={permissionBusy} /> : null}
+              <StatusRow label={t("onboarding.robot")} ready={Boolean(readiness?.robotReady)} readyText={t("onboarding.robotConnectedSaved")} pendingText={readiness?.skipped.robot ? t("onboarding.setupLater") : t("onboarding.optional")} />
+              {!readiness?.robotReady && !readiness?.skipped.robot ? <SecondaryButton label={t("onboarding.robotLater")} onPress={skipRobot} /> : null}
               {permissionError ? <Text style={styles.error}>{permissionError}</Text> : null}
               <View style={styles.actions}>
-                <PrimaryButton label="Продолжить" onPress={() => goToStep("done")} disabled={!readiness?.microphoneReady} />
+                <PrimaryButton label={t("common.continue")} onPress={() => goToStep("done")} disabled={!readiness?.microphoneReady} />
               </View>
             </Section>
           ) : null}
 
           {activeStep === "done" ? (
-            <Section title="Готово">
-              <StatusRow label="OpenAI" ready={Boolean(readiness?.openAiKeyConfigured)} readyText="Ключ сохранён" pendingText="Не настроен" />
-              <StatusRow label="Модели" ready={Boolean(readiness?.modelsReady)} readyText="Готовы" pendingText="Не готовы" />
-              <StatusRow label="Микрофон" ready={Boolean(readiness?.microphoneReady)} readyText="Разрешён" pendingText="Нет доступа" />
-              <StatusRow label="Робот" ready={Boolean(readiness?.robotReady)} readyText="Готов" pendingText="Необязательно" neutral />
-              <View style={styles.actions}><PrimaryButton label="Открыть LOOI" onPress={finishOnboarding} disabled={!canFinish} /></View>
+            <Section title={t("onboarding.doneTitle")}>
+              <StatusRow label="OpenAI" ready={Boolean(readiness?.openAiKeyConfigured)} readyText={t("settings.summary.keySaved")} pendingText={t("onboarding.keyNotConfigured")} />
+              <StatusRow label={t("onboarding.step.models")} ready={Boolean(readiness?.modelsReady)} readyText={t("onboarding.modelsReady")} pendingText={t("onboarding.modelsNotReady")} />
+              <StatusRow label={t("onboarding.microphone")} ready={Boolean(readiness?.microphoneReady)} readyText={t("onboarding.micAllowed")} pendingText={t("onboarding.noAccess")} />
+              <StatusRow label={t("settings.summary.robot")} ready={Boolean(readiness?.robotReady)} readyText={t("common.ready")} pendingText={t("onboarding.optional")} neutral />
+              <View style={styles.actions}><PrimaryButton label={t("onboarding.openLooi")} onPress={finishOnboarding} disabled={!canFinish} /></View>
             </Section>
           ) : null}
         </ScrollView>
@@ -308,6 +333,13 @@ const styles = StyleSheet.create({
   eyebrow: { color: looiTheme.cyan, fontSize: 11, fontWeight: "800", letterSpacing: 1.8 },
   title: { color: looiTheme.text, fontSize: 28, fontWeight: "800", marginTop: 4 },
   subtitle: { color: looiTheme.muted, fontSize: 13, lineHeight: 19, maxWidth: 620, marginTop: 6 },
+  interfaceLanguageRow: { gap: 8 },
+  interfaceLanguageLabel: { color: looiTheme.muted, fontSize: 12, fontWeight: "700" },
+  interfaceLanguageChoices: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  languageChoice: { borderWidth: 1, borderColor: looiTheme.line, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  languageChoiceSelected: { borderColor: looiTheme.cyan, backgroundColor: "rgba(40,213,255,0.08)" },
+  languageChoiceText: { color: looiTheme.muted, fontSize: 12, fontWeight: "700" },
+  languageChoiceTextSelected: { color: looiTheme.text },
   steps: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   step: { borderWidth: 1, borderColor: looiTheme.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8 },
   stepActive: { borderColor: looiTheme.cyan, backgroundColor: "rgba(40,213,255,0.08)" },

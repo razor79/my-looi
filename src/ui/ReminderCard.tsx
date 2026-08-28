@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, useColorScheme } from "react-native";
+import { useUiText } from "@/src/i18n/use-ui-text";
 
 interface ReminderCardProps {
   title: string;
@@ -10,6 +11,7 @@ interface ReminderCardProps {
 export function ReminderCard({ title, body, time, relatedMemory }: ReminderCardProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { t } = useUiText();
 
   return (
     <View style={[styles.card, { backgroundColor: isDark ? "#1E1B4B" : "#EDE9FE" }]}>
@@ -24,7 +26,7 @@ export function ReminderCard({ title, body, time, relatedMemory }: ReminderCardP
       {relatedMemory && (
         <View style={[styles.relatedBox, { backgroundColor: isDark ? "#312E81" : "#DDD6FE" }]}>
           <Text style={[styles.relatedLabel, { color: isDark ? "#A5B4FC" : "#5B21B6" }]}>
-            Связанная память
+            {t("memory.related")}
           </Text>
           <Text style={[styles.relatedText, { color: isDark ? "#E0E7FF" : "#3730A3" }]}>
             {relatedMemory}

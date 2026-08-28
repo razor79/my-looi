@@ -11,7 +11,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { isRealtimeConversationMode, useUserStore, type VoiceState } from "@/src/store/user";
 import { useConversationStore } from "@/src/store/conversation";
-import { looiStatusLabels, looiTheme } from "@/src/ui/looi-theme";
+import { looiTheme } from "@/src/ui/looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
 import { useCharacterReactionStore, type CharacterMood } from "@/src/character/character-reaction";
 import { recordDiagnosticEvent } from "@/src/diagnostics/diagnostic-log";
 
@@ -54,6 +55,7 @@ export function RobotFace({
   const realtimeReadiness = useConversationStore((state) => state.realtimeReadiness);
   const conversationMode = useUserStore((state) => state.preferences.conversationMode);
   const characterMood = useCharacterReactionStore((state) => state.mood);
+  const { t } = useUiText();
   const characterReactionId = useCharacterReactionStore((state) => state.reactionId);
   const blink = useSharedValue(1);
   const gaze = useSharedValue(0);
@@ -63,21 +65,31 @@ export function RobotFace({
   const isAvatar = mode === "avatar";
   const statusLabel = isRealtimeConversationMode(conversationMode)
     ? voiceState === "speaking"
-      ? "Говорю"
+      ? t("face.speaking")
       : voiceState === "processing"
-        ? "Думаю"
+        ? t("face.thinking")
         : realtimeReadiness === "preparing-microphone"
-          ? "Подготовка микрофона…"
+          ? t("overlay.preparingMic")
           : realtimeReadiness === "connecting"
-            ? "Подключаюсь…"
+            ? t("overlay.connecting")
             : realtimeReadiness === "ready"
-            ? "Готов · слушаю"
+              ? t("overlay.readyListening")
               : realtimeReadiness === "microphone-error"
-                ? "Микрофон не готов"
+                ? t("overlay.micNotReady")
                 : realtimeReadiness === "error"
-                  ? "Нет связи"
-                  : "Коснись, чтобы начать"
-    : looiStatusLabels[voiceState];
+                  ? t("overlay.noConnection")
+                  : t("face.tapToStart")
+    : voiceState === "sleeping"
+      ? t("face.ready")
+      : voiceState === "attention"
+        ? t("face.here")
+        : voiceState === "listening"
+          ? t("face.listening")
+          : voiceState === "processing"
+            ? t("face.thinking")
+            : voiceState === "speaking"
+              ? t("face.speaking")
+              : t("face.verifying");
   const characterReactionVisible = Boolean(characterMood) && (
     voiceState === "sleeping" ||
     (isRealtimeConversationMode(conversationMode) && voiceState === "listening")
@@ -244,7 +256,7 @@ export function RobotFace({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityHint="Коснись, чтобы привлечь внимание LOOI; удерживай для меню"
+      accessibilityHint={t("face.accessibilityHint")}
       onPressIn={() => {
         longPressFired.current = false;
       }}

@@ -18,12 +18,3 @@ export const looiTheme = {
 } as const;
 
 export type LooiThemeColor = keyof typeof looiTheme;
-
-export const looiStatusLabels = {
-  sleeping: "Готов",
-  attention: "Я здесь",
-  listening: "Слушаю",
-  processing: "Думаю",
-  speaking: "Говорю",
-  verifying: "Проверяю голос",
-} as const;

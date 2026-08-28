@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
-import * as Sharing from "expo-sharing";
 import { useFocusEffect } from "expo-router";
 
 import { DeviceShell } from "@/src/ui/DeviceShell";
@@ -10,10 +9,18 @@ import { useUserStore, type ConversationMode } from "@/src/store/user";
 import { voiceRuntime } from "@/src/perceivers/voice-runtime";
 import { syncVoiceRuntime } from "@/src/core/app-bootstrap";
 import { recordDiagnosticEvent, clearDiagnosticLog, getDiagnosticLogEntries } from "@/src/diagnostics/diagnostic-log";
-import { writeCombinedDiagnosticExport } from "@/src/diagnostics/diagnostic-export";
+import {
+  chooseDiagnosticExportFolder,
+  getDiagnosticExportFolder,
+  saveCombinedDiagnosticExportToSelectedFolder,
+  shareCombinedDiagnosticExport,
+} from "@/src/diagnostics/diagnostic-export";
 import { withExternalActivityLease } from "@/src/core/background-process-exit";
 import { RESPONSE_LANGUAGE_OPTIONS } from "@/src/language/response-language";
 import { LISTENING_LANGUAGE_OPTIONS } from "@/src/language/listening-language";
+import { INTERFACE_LANGUAGE_OPTIONS } from "@/src/i18n/ui-language";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import { getLocalizedModelDownloadStage, getLocalizedVoiceDescription } from "@/src/i18n/ui-strings";
 import { REALTIME_VOICE_OPTIONS, TTS_SPEED_OPTIONS } from "@/src/voice/tts-voices";
 import {
   clearOpenAiApiKey,
@@ -62,6 +69,15 @@ import {
   getLooiRobotRuntimeState,
   subscribeLooiRobotRuntimeState,
 } from "@/src/device-tools/looi-robot";
+import {
+  canInstallMyLooiUpdate,
+  checkForMyLooiUpdate,
+  downloadAndVerifyMyLooiUpdate,
+  installDownloadedMyLooiUpdate,
+  openMyLooiInstallPermissionSettings,
+  type DownloadedUpdate,
+  type UpdateRelease,
+} from "@/src/updates/github-release-updater";
 
 const REALTIME_VOICE_ORDER = ["marin", "cedar", "coral", "verse", "sage", "shimmer", "alloy", "ash", "ballad", "echo"];
 const CURATED_VOICES = [...REALTIME_VOICE_OPTIONS].sort(
@@ -80,6 +96,7 @@ type RobotUiState = {
 
 export default function SettingsScreen() {
   const { preferences, updatePreferences } = useUserStore();
+  const { language: interfaceLanguage, t } = useUiText();
   const [advanced, setAdvanced] = useState(false);
   const [openAiKeyConfigured, setOpenAiKeyConfigured] = useState(false);
   const [openAiKeyInput, setOpenAiKeyInput] = useState("");
@@ -99,12 +116,17 @@ export default function SettingsScreen() {
   const [backupResult, setBackupResult] = useState<string | null>(null);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null);
+  const [diagnosticFolder, setDiagnosticFolder] = useState(() => getDiagnosticExportFolder());
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateRelease, setUpdateRelease] = useState<UpdateRelease | null>(null);
+  const [downloadedUpdate, setDownloadedUpdate] = useState<DownloadedUpdate | null>(null);
+  const [updateResult, setUpdateResult] = useState<string | null>(null);
   const [robotUi, setRobotUi] = useState<RobotUiState>({ saved: null, candidates: [], scanning: false, busy: false, result: null });
   const [robotRuntime, setRobotRuntime] = useState(() => getLooiRobotRuntimeState());
 
   const refreshOpenAi = useCallback(() => {
     void hasOpenAiApiKey().then(setOpenAiKeyConfigured).catch(() => setOpenAiKeyConfigured(false));
-  }, []);
+  }, [t]);
 
   const refreshOpenAiModels = useCallback(async () => {
     setOpenAiModelsBusy(true);
@@ -118,23 +140,23 @@ export default function SettingsScreen() {
       const visibleModels = models.filter((model) => !isOfficiallyDeprecatedRealtimeModelId(model.id));
       setOpenAiModels(visibleModels);
       if (visibleModels.length === 0) {
-        setOpenAiModelsResult("Для этого ключа поддерживаемые Realtime-модели не найдены");
+        setOpenAiModelsResult(t("settings.modelsNone"));
         return;
       }
       const current = useUserStore.getState().preferences.realtimeModelId;
       if (!visibleModels.some((model) => model.id === current)) {
         const fallback = visibleModels.find((model) => model.id === DEFAULT_REALTIME_MODEL_ID) ?? visibleModels[0];
         updatePreferences({ realtimeModelId: fallback.id });
-        setOpenAiModelsResult(`Выбрана доступная модель: ${formatRealtimeModelName(fallback.id)}`);
+        setOpenAiModelsResult(t("settings.modelsSelected", { model: formatRealtimeModelName(fallback.id) }));
       } else {
-        setOpenAiModelsResult(`Доступно моделей: ${visibleModels.length}`);
+        setOpenAiModelsResult(t("settings.modelsAvailable", { count: visibleModels.length }));
       }
     } catch (error) {
-      setOpenAiModelsResult(`Ошибка списка моделей: ${error instanceof Error ? error.message : String(error)}`);
+      setOpenAiModelsResult(t("settings.modelsError", { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setOpenAiModelsBusy(false);
     }
-  }, [updatePreferences]);
+  }, [t, updatePreferences]);
 
   const refreshModels = useCallback(async () => {
     try {
@@ -142,9 +164,10 @@ export default function SettingsScreen() {
       setModelStatus(next);
       setModelError(null);
     } catch (error) {
-      setModelError(error instanceof Error ? error.message : String(error));
+      console.warn("[Settings] Local model readiness check failed:", error);
+      setModelError(t("settings.modelsDownloadFailed"));
     }
-  }, []);
+  }, [t]);
 
 
   const refreshMemory = useCallback(async () => {
@@ -188,32 +211,32 @@ export default function SettingsScreen() {
       await saveOpenAiApiKey(validateOpenAiApiKey(openAiKeyInput));
       setOpenAiKeyInput("");
       setOpenAiKeyConfigured(true);
-      setOpenAiKeyResult("✓ Ключ сохранён только на этом устройстве");
+      setOpenAiKeyResult(t("settings.keySavedLocal"));
       void refreshOpenAiModels();
     } catch (error) {
-      setOpenAiKeyResult(`Ошибка: ${error instanceof Error ? error.message : String(error)}`);
+      setOpenAiKeyResult(t("common.error", { message: error instanceof Error ? error.message : String(error) }));
     } finally { setOpenAiKeyBusy(false); }
-  }, [openAiKeyBusy, openAiKeyInput, refreshOpenAiModels]);
+  }, [openAiKeyBusy, openAiKeyInput, refreshOpenAiModels, t]);
 
   const deleteKey = useCallback(() => {
-    Alert.alert("Удалить OpenAI API key?", "Без него Realtime PCM не сможет начать разговор.", [
-      { text: "Отмена", style: "cancel" },
-      { text: "Удалить", style: "destructive", onPress: () => {
+    Alert.alert(t("settings.deleteKeyTitle"), t("settings.deleteKeyBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.delete"), style: "destructive", onPress: () => {
         setOpenAiKeyBusy(true);
         void clearOpenAiApiKey().then(() => {
           setOpenAiKeyConfigured(false);
           setOpenAiModels([]);
           setOpenAiModelsResult(null);
-          setOpenAiKeyResult("Ключ удалён");
+          setOpenAiKeyResult(t("settings.keyDeleted"));
         }).finally(() => setOpenAiKeyBusy(false));
       } },
     ]);
-  }, []);
+  }, [t]);
 
   const previewVoice = useCallback(async (voiceId: string) => {
     if (voicePreviewBusy) return;
     if (!openAiKeyConfigured) {
-      setVoicePreviewResult("Сначала сохраните OpenAI API key");
+      setVoicePreviewResult(t("settings.previewNeedKey"));
       return;
     }
     setVoicePreviewBusy(voiceId);
@@ -222,14 +245,14 @@ export default function SettingsScreen() {
     kwsAudioFeeder.setWakewordFeedingEnabled(false);
     try {
       await playOpenAiRealtimeVoicePreview(voiceId, preferences.language);
-      setVoicePreviewResult("✓ Preview воспроизведён");
+      setVoicePreviewResult(t("settings.previewPlayed"));
     } catch (error) {
-      setVoicePreviewResult(`Ошибка preview: ${error instanceof Error ? error.message : String(error)}`);
+      setVoicePreviewResult(t("settings.previewError", { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       kwsAudioFeeder.setWakewordFeedingEnabled(wakewordFeedingWasEnabled);
       setVoicePreviewBusy(null);
     }
-  }, [openAiKeyConfigured, preferences.language, voicePreviewBusy]);
+  }, [openAiKeyConfigured, preferences.language, t, voicePreviewBusy]);
 
   const downloadModels = useCallback(async () => {
     if (modelBusy) return;
@@ -238,9 +261,9 @@ export default function SettingsScreen() {
       await downloadMissingSherpaModels(setModelProgress);
       await refreshModels();
       await syncVoiceRuntime();
-    } catch (error) { setModelError(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { console.warn("[Settings] Local model download failed:", error); setModelError(t("settings.modelsDownloadFailed")); }
     finally { setModelBusy(false); }
-  }, [modelBusy, refreshModels]);
+  }, [modelBusy, refreshModels, t]);
 
 
   const scanRobot = useCallback(async () => {
@@ -248,11 +271,11 @@ export default function SettingsScreen() {
     setRobotUi((s) => ({ ...s, scanning: true, result: null }));
     try {
       const candidates = await scanLooiRobotCandidates();
-      setRobotUi((s) => ({ ...s, candidates, result: candidates.length ? `Найдено: ${candidates.length}` : "LOOI не найден" }));
+      setRobotUi((s) => ({ ...s, candidates, result: candidates.length ? t("settings.robotFound", { count: candidates.length }) : t("settings.robotNotFound") }));
     } catch (error) {
       setRobotUi((s) => ({ ...s, result: error instanceof Error ? error.message : String(error) }));
     } finally { setRobotUi((s) => ({ ...s, scanning: false })); }
-  }, [robotUi.busy, robotUi.scanning]);
+  }, [robotUi.busy, robotUi.scanning, t]);
 
   const connectRobot = useCallback(async (candidate?: LooiRobotCandidate) => {
     if (robotUi.busy) return;
@@ -261,79 +284,149 @@ export default function SettingsScreen() {
       if (candidate) await connectSelectedLooiRobot({ id: candidate.id, name: candidate.name });
       else await forceReconnectSavedLooiRobot();
       await refreshRobot();
-      setRobotUi((s) => ({ ...s, result: "✓ LOOI подключён" }));
+      setRobotUi((s) => ({ ...s, result: t("settings.robotConnected") }));
     } catch (error) {
       setRobotUi((s) => ({ ...s, result: error instanceof Error ? error.message : String(error) }));
     } finally { setRobotUi((s) => ({ ...s, busy: false })); }
-  }, [refreshRobot, robotUi.busy]);
+  }, [refreshRobot, robotUi.busy, t]);
 
   const forgetRobot = useCallback(() => {
-    Alert.alert("Забыть выбранного LOOI?", undefined, [
-      { text: "Отмена", style: "cancel" },
-      { text: "Удалить", style: "destructive", onPress: () => {
+    Alert.alert(t("settings.forgetRobotTitle"), undefined, [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.delete"), style: "destructive", onPress: () => {
         setRobotUi((s) => ({ ...s, busy: true }));
         void clearSavedLooiRobot().then(refreshRobot).finally(() => setRobotUi((s) => ({ ...s, busy: false, candidates: [] })));
       } },
     ]);
-  }, [refreshRobot]);
+  }, [refreshRobot, t]);
 
   const chooseBackup = useCallback(async () => {
     if (backupBusy) return;
     setBackupBusy(true); setBackupResult(null);
     try {
       const folder = await chooseLocalBackupFolder();
-      setBackupResult(`Папка: ${folder.displayName || folder.providerName || "выбрана"}`);
+      setBackupResult(t("settings.backupFolderChosen", { folder: folder.displayName || folder.providerName || t("common.selected") }));
     } catch (error) { setBackupResult(error instanceof Error ? error.message : String(error)); }
     finally { setBackupBusy(false); }
-  }, [backupBusy]);
+  }, [backupBusy, t]);
 
   const backupNow = useCallback(async () => {
     if (backupBusy) return;
     setBackupBusy(true); setBackupResult(null);
     try {
       const result = await backupLocalMemoryToSelectedFolder();
-      setBackupResult(`✓ Backup: ${result.memoryCount} фактов · ${result.sessionCount} диалогов`);
+      setBackupResult(t("settings.backupDone", { facts: result.memoryCount, sessions: result.sessionCount }));
     } catch (error) { setBackupResult(error instanceof Error ? error.message : String(error)); }
     finally { setBackupBusy(false); }
-  }, [backupBusy]);
+  }, [backupBusy, t]);
 
   const restoreNow = useCallback(() => {
     if (backupBusy) return;
-    Alert.alert("Восстановить локальную память?", "Текущая локальная база будет объединена с backup.", [
-      { text: "Отмена", style: "cancel" },
-      { text: "Восстановить", onPress: () => {
+    Alert.alert(t("settings.restoreLocalTitle"), t("settings.restoreLocalBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.restore"), onPress: () => {
         setBackupBusy(true); setBackupResult(null);
         void restoreLocalMemoryFromSelectedFolder().then(({ stats }) => {
-          setBackupResult(`✓ Восстановлено: ${stats.memoryCount} фактов · ${stats.sessionCount} диалогов`);
+          setBackupResult(t("settings.restoreDone", { facts: stats.memoryCount, sessions: stats.sessionCount }));
           void refreshMemory();
         }).catch((error) => setBackupResult(error instanceof Error ? error.message : String(error))).finally(() => setBackupBusy(false));
       } },
     ]);
-  }, [backupBusy, refreshMemory]);
+  }, [backupBusy, refreshMemory, t]);
 
   const forgetBackupFolder = useCallback(async () => {
     if (backupBusy) return;
     setBackupBusy(true);
-    try { await forgetLocalBackupFolder(); setBackupResult("Папка backup забыта"); }
+    try { await forgetLocalBackupFolder(); setBackupResult(t("settings.backupFolderForgotten")); }
     finally { setBackupBusy(false); }
-  }, [backupBusy]);
+  }, [backupBusy, t]);
 
-  const exportDiagnostics = useCallback(async () => {
+  const shareDiagnostics = useCallback(async () => {
     if (diagnosticBusy) return;
     setDiagnosticBusy(true); setDiagnosticResult(null);
     try {
-      if (!(await Sharing.isAvailableAsync())) throw new Error("Системное меню отправки недоступно");
-      const uri = await writeCombinedDiagnosticExport();
-      await withExternalActivityLease("diagnostic-package-share-sheet", () => Sharing.shareAsync(uri, { mimeType: "application/zip", dialogTitle: "Экспорт диагностики LOOI" }));
-      setDiagnosticResult("ZIP подготовлен");
+      await withExternalActivityLease("diagnostic-package-share", () => shareCombinedDiagnosticExport(t("settings.shareDialogTitle")));
+      setDiagnosticResult(t("settings.diagnosticsShared"));
     } catch (error) { setDiagnosticResult(error instanceof Error ? error.message : String(error)); }
     finally { setDiagnosticBusy(false); }
-  }, [diagnosticBusy]);
+  }, [diagnosticBusy, t]);
+
+  const chooseDiagnosticFolder = useCallback(async () => {
+    if (diagnosticBusy) return;
+    setDiagnosticBusy(true); setDiagnosticResult(null);
+    try {
+      const folder = await chooseDiagnosticExportFolder();
+      setDiagnosticFolder(folder);
+      setDiagnosticResult(t("settings.backupFolderChosen", { folder: folder.displayName || folder.providerName || t("common.selected") }));
+    } catch (error) { setDiagnosticResult(error instanceof Error ? error.message : String(error)); }
+    finally { setDiagnosticBusy(false); }
+  }, [diagnosticBusy, t]);
+
+  const saveDiagnosticsToFolder = useCallback(async () => {
+    if (diagnosticBusy || !diagnosticFolder) return;
+    setDiagnosticBusy(true); setDiagnosticResult(null);
+    try {
+      const file = await saveCombinedDiagnosticExportToSelectedFolder();
+      setDiagnosticResult(t("settings.savedToFolder", { name: file.name }));
+    } catch (error) { setDiagnosticResult(error instanceof Error ? error.message : String(error)); }
+    finally { setDiagnosticBusy(false); }
+  }, [diagnosticBusy, diagnosticFolder, t]);
 
   const clearDiagnostics = useCallback(async () => {
     clearDiagnosticLog();
-    setDiagnosticResult("Диагностика очищена");
-  }, []);
+    setDiagnosticResult(t("settings.diagnosticsCleared"));
+  }, [t]);
+
+  const checkUpdate = useCallback(async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true); setUpdateResult(null); setDownloadedUpdate(null);
+    try {
+      const release = await checkForMyLooiUpdate();
+      setUpdateRelease(release);
+      setUpdateResult(release.updateAvailable
+        ? t("settings.updateFound", { version: release.version })
+        : t("settings.latestVersion", { version: release.currentVersion }));
+    } catch (error) {
+      setUpdateRelease(null);
+      setUpdateResult(error instanceof Error ? error.message : String(error));
+    } finally { setUpdateBusy(false); }
+  }, [t, updateBusy]);
+
+  const downloadUpdate = useCallback(async () => {
+    if (updateBusy || !updateRelease?.updateAvailable) return;
+    setUpdateBusy(true); setUpdateResult(t("settings.downloadingVersion", { version: updateRelease.version }));
+    try {
+      const update = await downloadAndVerifyMyLooiUpdate(updateRelease);
+      setDownloadedUpdate(update);
+      setUpdateResult(t("settings.updateVerified", { version: update.release.version }));
+    } catch (error) {
+      setDownloadedUpdate(null);
+      setUpdateResult(error instanceof Error ? error.message : String(error));
+    } finally { setUpdateBusy(false); }
+  }, [t, updateBusy, updateRelease]);
+
+  const installUpdate = useCallback(async () => {
+    if (updateBusy || !downloadedUpdate) return;
+    setUpdateBusy(true); setUpdateResult(null);
+    try {
+      if (!(await canInstallMyLooiUpdate())) {
+        setUpdateResult(t("settings.installBlocked"));
+        return;
+      }
+      await withExternalActivityLease("app-update-package-installer", () => installDownloadedMyLooiUpdate(downloadedUpdate));
+      setUpdateResult(t("settings.installerOpened"));
+    } catch (error) {
+      setUpdateResult(error instanceof Error ? error.message : String(error));
+    } finally { setUpdateBusy(false); }
+  }, [downloadedUpdate, t, updateBusy]);
+
+  const openInstallSettings = useCallback(async () => {
+    try {
+      await withExternalActivityLease("app-update-install-permission", () => openMyLooiInstallPermissionSettings());
+    } catch (error) {
+      setUpdateResult(error instanceof Error ? error.message : String(error));
+    }
+  }, [t]);
 
   const backupFolder = getLocalBackupStorageSettings().folder;
   const sharedReady = Boolean(modelStatus?.asr.ready && modelStatus?.kws.ready && modelStatus?.vad.ready);
@@ -353,111 +446,136 @@ export default function SettingsScreen() {
   );
 
   return (
-    <DeviceShell title="Настройки" eyebrow="MY LOOI">
+    <DeviceShell title={t("settings.title")} eyebrow="MY LOOI">
       <View style={styles.summaryGrid}>
-        <Summary label="Режим" value={preferences.conversationMode === "realtime_pcm" ? "Realtime PCM" : preferences.conversationMode} ok={preferences.conversationMode === "realtime_pcm"} />
-        <Summary label="OpenAI" value={openAiKeyConfigured ? "Ключ сохранён" : "Нужен ключ"} ok={openAiKeyConfigured} />
-        <Summary label="Локальные" value={sharedReady ? "Готовы" : "Нужна проверка"} ok={sharedReady} />
-        <Summary label="Робот" value={robotRuntime.connected ? "Подключён" : robotUi.saved ? "Сохранён" : "Не выбран"} ok={robotRuntime.connected} neutral={!robotRuntime.connected} />
+        <Summary label={t("settings.summary.mode")} value={preferences.conversationMode === "realtime_pcm" ? "Realtime PCM" : preferences.conversationMode} ok={preferences.conversationMode === "realtime_pcm"} />
+        <Summary label="OpenAI" value={openAiKeyConfigured ? t("settings.summary.keySaved") : t("settings.summary.keyNeeded")} ok={openAiKeyConfigured} />
+        <Summary label={t("settings.summary.local")} value={sharedReady ? t("settings.summary.localReady") : t("settings.summary.localCheck")} ok={sharedReady} />
+        <Summary label={t("settings.summary.robot")} value={robotRuntime.connected ? t("settings.summary.robotConnected") : robotUi.saved ? t("settings.summary.robotSaved") : t("settings.summary.robotNone")} ok={robotRuntime.connected} neutral={!robotRuntime.connected} />
       </View>
 
-      <Section title="Разговор">
-        <Text style={styles.help}>Realtime PCM — основной принятый тракт: app-owned AudioRecord → OpenAI WebSocket → app-owned PCM playback.</Text>
-        <Choice selected={preferences.conversationMode === "realtime_pcm"} label="Realtime PCM" detail="Основной" onPress={() => selectConversationMode("realtime_pcm")} />
-        <SwitchRow label="Обращение «LOOI / Макс»" value={preferences.wakeWordEnabled} onPress={() => updatePreferences({ wakeWordEnabled: !preferences.wakeWordEnabled })} />
+      <Section title={t("settings.conversation")}>
+        <Text style={styles.help}>{t("settings.conversationHelp")}</Text>
+        <Choice selected={preferences.conversationMode === "realtime_pcm"} label="Realtime PCM" detail={t("settings.primary")} onPress={() => selectConversationMode("realtime_pcm")} />
+        <SwitchRow label={t("settings.addressWake")} value={preferences.wakeWordEnabled} onPress={() => updatePreferences({ wakeWordEnabled: !preferences.wakeWordEnabled })} />
       </Section>
 
-      <Section title="Язык">
-        <Text style={styles.label}>Что ожидаем услышать</Text>
+      <Section title={t("settings.language")}>
+        <Text style={styles.label}>{t("settings.interfaceLanguage")}</Text>
+        <ButtonRow>{INTERFACE_LANGUAGE_OPTIONS.map((item) => <SmallChoice key={item.id} selected={preferences.interfaceLanguage === item.id} label={`${item.shortLabel} · ${item.label}`} onPress={() => updatePreferences({ interfaceLanguage: item.id })} />)}</ButtonRow>
+        <Text style={styles.label}>{t("settings.listeningLanguage")}</Text>
         <ButtonRow>{LISTENING_LANGUAGE_OPTIONS.map((item) => <SmallChoice key={item.id} selected={preferences.listeningLanguage === item.id} label={item.shortLabel} onPress={() => updatePreferences({ listeningLanguage: item.id })} />)}</ButtonRow>
-        <Text style={styles.label}>На каком языке отвечает LOOI</Text>
+        <Text style={styles.label}>{t("settings.responseLanguage")}</Text>
         <ButtonRow>{RESPONSE_LANGUAGE_OPTIONS.map((item) => <SmallChoice key={item.id} selected={preferences.language === item.id} label={item.shortLabel} onPress={() => updatePreferences({ language: item.id })} />)}</ButtonRow>
       </Section>
 
       <Section title="OpenAI">
-        <Text style={styles.help}>Ключ хранится только в Android SecureStore и используется для прямого подключения к OpenAI Realtime.</Text>
-        <TextInput value={openAiKeyInput} onChangeText={setOpenAiKeyInput} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder={openAiKeyConfigured ? "Новый OpenAI API key" : "OpenAI API key"} placeholderTextColor={looiTheme.muted} style={styles.input} />
+        <Text style={styles.help}>{t("settings.openAiHelp")}</Text>
+        <TextInput value={openAiKeyInput} onChangeText={setOpenAiKeyInput} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder={openAiKeyConfigured ? t("settings.newKey") : "OpenAI API key"} placeholderTextColor={looiTheme.muted} style={styles.input} />
         <ButtonRow>
-          <Action label={openAiKeyBusy ? "Сохраняю…" : openAiKeyConfigured ? "Заменить" : "Сохранить"} onPress={saveKey} disabled={openAiKeyBusy || !openAiKeyInput.trim()} />
-          {openAiKeyConfigured ? <Action label="Удалить" onPress={deleteKey} secondary /> : null}
+          <Action label={openAiKeyBusy ? t("settings.saving") : openAiKeyConfigured ? t("common.replace") : t("common.save")} onPress={saveKey} disabled={openAiKeyBusy || !openAiKeyInput.trim()} />
+          {openAiKeyConfigured ? <Action label={t("common.delete")} onPress={deleteKey} secondary /> : null}
         </ButtonRow>
         {openAiKeyResult ? <Text style={styles.result}>{openAiKeyResult}</Text> : null}
         <View style={styles.subCard}>
-          <Text style={styles.label}>Realtime-модель</Text>
-          <Text style={styles.help}>Список запрашивается у OpenAI для сохранённого API key. Цена — оценка минуты диалога: примерно 30 сек говорит человек и 30 сек LOOI.</Text>
-          <Action label={openAiModelsBusy ? "Обновляю модели…" : "Обновить модели"} onPress={() => void refreshOpenAiModels()} disabled={openAiModelsBusy || !openAiKeyConfigured} secondary />
+          <Text style={styles.label}>{t("settings.model")}</Text>
+          <Text style={styles.help}>{t("settings.modelsHelp")}</Text>
+          <Action label={openAiModelsBusy ? t("settings.refreshingModels") : t("settings.refreshModels")} onPress={() => void refreshOpenAiModels()} disabled={openAiModelsBusy || !openAiKeyConfigured} secondary />
           {currentRealtimeModels.map((model) => {
-            const cost = formatConversationCostPerMinute(model.id);
+            const cost = formatConversationCostPerMinute(model.id, interfaceLanguage);
             const note = model.id === DEFAULT_REALTIME_MODEL_ID
-              ? "Рекомендуем · Лучшее соотношение цены и качества"
+              ? t("settings.modelRecommended")
               : model.id === "gpt-realtime-2.1"
-                ? "Максимальное качество"
+                ? t("settings.modelQuality")
                 : null;
             const tone = model.id === DEFAULT_REALTIME_MODEL_ID ? "recommended" : model.id === "gpt-realtime-2.1" ? "quality" : undefined;
-            const detail = [cost ?? "Стоимость/мин пока неизвестна", note].filter(Boolean).join(" · ");
+            const detail = [cost ?? t("settings.costUnknown"), note].filter(Boolean).join(" · ");
             return <Choice key={model.id} selected={preferences.realtimeModelId === model.id} label={formatRealtimeModelName(model.id)} detail={detail} tone={tone} onPress={() => updatePreferences({ realtimeModelId: model.id })} />;
           })}
           {previousRealtimeModels.length ? <View style={styles.previousModelsBox}>
-            <Text style={styles.previousModelsTitle}>Предыдущие модели</Text>
-            <Text style={styles.help}>Они всё ещё поддерживаются OpenAI, но относятся к предыдущему поколению. Можно выбрать для сравнения.</Text>
+            <Text style={styles.previousModelsTitle}>{t("settings.previousModels")}</Text>
+            <Text style={styles.help}>{t("settings.previousModelsHelp")}</Text>
             {previousRealtimeModels.map((model) => {
-              const cost = formatConversationCostPerMinute(model.id);
-              const note = model.id === "gpt-realtime-2" ? "Предыдущая полная модель" : model.id === "gpt-realtime-1.5" ? "Предыдущая voice-модель" : null;
-              const detail = [cost ?? "Стоимость/мин пока неизвестна", note].filter(Boolean).join(" · ");
+              const cost = formatConversationCostPerMinute(model.id, interfaceLanguage);
+              const note = model.id === "gpt-realtime-2" ? t("settings.previousFullModel") : model.id === "gpt-realtime-1.5" ? t("settings.previousVoiceModel") : null;
+              const detail = [cost ?? t("settings.costUnknown"), note].filter(Boolean).join(" · ");
               return <Choice key={model.id} selected={preferences.realtimeModelId === model.id} label={formatRealtimeModelName(model.id)} detail={detail} tone="previous" onPress={() => updatePreferences({ realtimeModelId: model.id })} />;
             })}
           </View> : null}
-          {!openAiModelsBusy && openAiKeyConfigured && realtimeModels.length === 0 ? <Text style={styles.help}>Модели пока не загружены.</Text> : null}
+          {!openAiModelsBusy && openAiKeyConfigured && realtimeModels.length === 0 ? <Text style={styles.help}>{t("settings.modelsNotLoaded")}</Text> : null}
           {openAiModelsResult ? <Text style={styles.result}>{openAiModelsResult}</Text> : null}
-          <Text style={styles.help}>Фактическая стоимость зависит от соотношения речи, контекста и кэширования.</Text>
+          <Text style={styles.help}>{t("settings.costDisclaimer")}</Text>
         </View>
       </Section>
 
-      <Section title="Голос LOOI">
-        <Text style={styles.help}>Выбор запоминается и применяется к новой Realtime-сессии. Preview использует тот же именованный OpenAI voice.</Text>
-        {curatedVoices.map((voice) => <VoiceChoice key={voice.id} selected={preferences.ttsVoiceId === voice.id} label={voice.name} detail={`${voice.description}${voice.id === "marin" || voice.id === "cedar" ? " · рекомендуется OpenAI" : ""}`} onSelect={() => updatePreferences({ ttsVoiceId: voice.id })} onPreview={() => void previewVoice(voice.id)} previewing={voicePreviewBusy === voice.id} previewDisabled={Boolean(voicePreviewBusy) || !openAiKeyConfigured} />)}
+      <Section title={t("settings.voice")}>
+        <Text style={styles.help}>{t("settings.voiceHelp")}</Text>
+        {curatedVoices.map((voice) => <VoiceChoice key={voice.id} selected={preferences.ttsVoiceId === voice.id} label={voice.name} detail={`${getLocalizedVoiceDescription(interfaceLanguage, voice.id, voice.description)}${voice.id === "marin" || voice.id === "cedar" ? ` · ${t("settings.voiceRecommended")}` : ""}`} onSelect={() => updatePreferences({ ttsVoiceId: voice.id })} onPreview={() => void previewVoice(voice.id)} previewing={voicePreviewBusy === voice.id} previewDisabled={Boolean(voicePreviewBusy) || !openAiKeyConfigured} />)}
         {voicePreviewResult ? <Text style={styles.result}>{voicePreviewResult}</Text> : null}
-        <Text style={styles.label}>Скорость</Text>
+        <Text style={styles.label}>{t("settings.speed")}</Text>
         <ButtonRow>{TTS_SPEED_OPTIONS.map((speed) => <SmallChoice key={speed} selected={preferences.ttsSpeed === speed} label={`${speed}×`} onPress={() => updatePreferences({ ttsSpeed: speed })} />)}</ButtonRow>
       </Section>
 
-      <Section title="Локальные модели">
-        <ModelLine label="Shared STT" status={modelStatus?.asr} />
-        <ModelLine label="Wake word" status={modelStatus?.kws} />
-        <ModelLine label="VAD" status={modelStatus?.vad} />
-        <ButtonRow><Action label={modelBusy ? "Загружаю…" : "Проверить"} onPress={() => void refreshModels()} disabled={modelBusy} secondary /><Action label="Скачать недостающее" onPress={downloadModels} disabled={modelBusy} /></ButtonRow>
-        {modelProgress ? <Text style={styles.help}>{modelProgress.label} · {Math.round(modelProgress.progress * 100)}%</Text> : null}
+      <Section title={t("settings.localModels")}>
+        <ModelLine label={t("settings.sharedStt")} status={modelStatus?.asr} />
+        <ModelLine label={t("settings.wakeWord")} status={modelStatus?.kws} />
+        <ModelLine label={t("settings.vad")} status={modelStatus?.vad} />
+        <ButtonRow><Action label={modelBusy ? t("onboarding.downloading") : t("settings.check")} onPress={() => void refreshModels()} disabled={modelBusy} secondary /><Action label={t("settings.downloadMissing")} onPress={downloadModels} disabled={modelBusy} /></ButtonRow>
+        {modelProgress ? <Text style={styles.help}>{getLocalizedModelDownloadStage(interfaceLanguage, modelProgress.stage, modelProgress.label)} · {Math.round(modelProgress.progress * 100)}%</Text> : null}
         {modelError ? <Text style={styles.error}>{modelError}</Text> : null}
       </Section>
 
-      <Section title="Робот LOOI">
-        <Text style={styles.help}>{robotUi.saved ? `Сохранён: ${robotUi.saved.name}` : "Робот пока не выбран"} · BLE: {robotRuntime.connected ? "connected" : robotRuntime.connecting ? "connecting" : "offline"}</Text>
-        <ButtonRow><Action label={robotUi.scanning ? "Ищу…" : "Найти LOOI"} onPress={scanRobot} disabled={robotUi.scanning || robotUi.busy} /><Action label="Переподключить" onPress={() => void connectRobot()} disabled={!robotUi.saved || robotUi.busy} secondary /></ButtonRow>
+      <Section title={t("settings.robot")}>
+        <Text style={styles.help}>{robotUi.saved ? t("settings.robotSaved", { name: robotUi.saved.name }) : t("settings.robotNotSelected")} · BLE: {robotRuntime.connected ? "connected" : robotRuntime.connecting ? "connecting" : "offline"}</Text>
+        <ButtonRow><Action label={robotUi.scanning ? t("settings.searching") : t("settings.findLooi")} onPress={scanRobot} disabled={robotUi.scanning || robotUi.busy} /><Action label={t("settings.reconnect")} onPress={() => void connectRobot()} disabled={!robotUi.saved || robotUi.busy} secondary /></ButtonRow>
         {robotUi.candidates.map((candidate) => <Choice key={candidate.id} selected={candidate.selected} label={candidate.name} detail={`${candidate.rssi ?? "?"} dBm`} onPress={() => void connectRobot(candidate)} />)}
-        {robotUi.saved ? <Action label="Забыть выбранного робота" onPress={forgetRobot} secondary /> : null}
+        {robotUi.saved ? <Action label={t("settings.forgetRobot")} onPress={forgetRobot} secondary /> : null}
         {robotUi.result ? <Text style={styles.result}>{robotUi.result}</Text> : null}
       </Section>
 
-      <Section title="Память и backup">
-        <Text style={styles.help}>{memoryStats ? `${memoryStats.memoryCount} фактов · ${memoryStats.sessionCount} диалогов · ${memoryStats.messageCount} сообщений` : "Считаю локальную базу…"}</Text>
-        <Text style={styles.help}>Папка backup: {backupFolder?.displayName || backupFolder?.providerName || "не выбрана"}</Text>
-        <ButtonRow><Action label="Выбрать папку" onPress={chooseBackup} disabled={backupBusy} secondary /><Action label="Backup сейчас" onPress={backupNow} disabled={backupBusy || !backupFolder} /><Action label="Восстановить" onPress={restoreNow} disabled={backupBusy || !backupFolder} secondary /></ButtonRow>
-        {backupFolder ? <Action label="Забыть папку backup" onPress={forgetBackupFolder} disabled={backupBusy} secondary /> : null}
+      <Section title={t("settings.memoryBackup")}>
+        <Text style={styles.help}>{memoryStats ? t("settings.memoryStats", { facts: memoryStats.memoryCount, sessions: memoryStats.sessionCount, messages: memoryStats.messageCount }) : t("settings.memoryCounting")}</Text>
+        <Text style={styles.help}>{t("settings.backupFolder", { folder: backupFolder?.displayName || backupFolder?.providerName || t("common.notSelected") })}</Text>
+        <ButtonRow><Action label={t("settings.chooseFolder")} onPress={chooseBackup} disabled={backupBusy} secondary /><Action label={t("settings.backupNow")} onPress={backupNow} disabled={backupBusy || !backupFolder} /><Action label={t("common.restore")} onPress={restoreNow} disabled={backupBusy || !backupFolder} secondary /></ButtonRow>
+        {backupFolder ? <Action label={t("settings.forgetBackupFolder")} onPress={forgetBackupFolder} disabled={backupBusy} secondary /> : null}
         {backupResult ? <Text style={styles.result}>{backupResult}</Text> : null}
       </Section>
 
+      <Section title={t("settings.diagnostics")}>
+        <Text style={styles.help}>{t("settings.diagnosticsHelp", { count: getDiagnosticLogEntries().length })}</Text>
+        <ButtonRow>
+          <Action label={diagnosticBusy ? t("common.wait") : t("settings.shareZip")} onPress={() => void shareDiagnostics()} disabled={diagnosticBusy} />
+        </ButtonRow>
+        <Text style={styles.help}>{t("settings.localFolder", { folder: diagnosticFolder?.displayName || diagnosticFolder?.providerName || t("common.notSelected") })}</Text>
+        <ButtonRow>
+          <Action label={t("settings.chooseLocalFolder")} onPress={() => void chooseDiagnosticFolder()} disabled={diagnosticBusy} secondary />
+          <Action label={t("settings.saveLocal")} onPress={() => void saveDiagnosticsToFolder()} disabled={diagnosticBusy || !diagnosticFolder} />
+        </ButtonRow>
+        <Action label={t("settings.clearDiagnostics")} onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary />
+        {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
+      </Section>
+
+      <Section title={t("settings.updates")}>
+        <Text style={styles.help}>{t("settings.currentVersion", { version })}</Text>
+        {updateRelease?.updateAvailable ? <Text style={styles.value}>{t("settings.updateAvailable", { version: updateRelease.version })}</Text> : null}
+        <ButtonRow>
+          <Action label={updateBusy ? t("common.wait") : t("settings.checkUpdates")} onPress={() => void checkUpdate()} disabled={updateBusy} secondary />
+          {updateRelease?.updateAvailable && !downloadedUpdate ? <Action label={t("settings.downloadVersion", { version: updateRelease.version })} onPress={() => void downloadUpdate()} disabled={updateBusy} /> : null}
+          {downloadedUpdate ? <Action label={t("settings.installVersion", { version: downloadedUpdate.release.version })} onPress={() => void installUpdate()} disabled={updateBusy} /> : null}
+        </ButtonRow>
+        {downloadedUpdate ? <Action label={t("settings.installSettings")} onPress={() => void openInstallSettings()} disabled={updateBusy} secondary /> : null}
+        {updateResult ? <Text style={styles.result}>{updateResult}</Text> : null}
+      </Section>
+
       <View style={styles.sectionWide}>
-        <Pressable onPress={() => setAdvanced(!advanced)} style={styles.advancedHeader}><Text style={styles.sectionTitle}>Advanced</Text><Text style={styles.value}>{advanced ? "Скрыть" : "Открыть"}</Text></Pressable>
+        <Pressable onPress={() => setAdvanced(!advanced)} style={styles.advancedHeader}><Text style={styles.sectionTitle}>{t("settings.advanced")}</Text><Text style={styles.value}>{advanced ? t("common.hide") : t("common.open")}</Text></Pressable>
         {advanced ? <View style={styles.card}>
-          <Text style={styles.help}>WebRTC оставлен только как rollback/A-B. Он не является основным режимом.</Text>
-          <Choice selected={preferences.conversationMode === "realtime"} label="Realtime WebRTC (legacy A/B)" detail="Fallback" onPress={() => selectConversationMode("realtime")} />
-          <Text style={styles.help}>Диагностический журнал: {getDiagnosticLogEntries().length} записей. Микрофонные WAV больше не сохраняются.</Text>
-          <ButtonRow><Action label={diagnosticBusy ? "Экспортирую…" : "Экспорт диагностики ZIP"} onPress={exportDiagnostics} disabled={diagnosticBusy} /><Action label="Очистить диагностику" onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary /></ButtonRow>
-          {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
+          <Text style={styles.help}>{t("settings.webrtcHelp")}</Text>
+          <Choice selected={preferences.conversationMode === "realtime"} label="Realtime WebRTC (legacy A/B)" detail={t("common.fallback")} onPress={() => selectConversationMode("realtime")} />
         </View> : null}
       </View>
 
-      <Text style={styles.version}>My LOOI {version} · local-first</Text>
+      <Text style={styles.version}>My LOOI {version} · {t("settings.localFirst")}</Text>
     </DeviceShell>
   );
 }
@@ -465,12 +583,12 @@ export default function SettingsScreen() {
 function Section({ title, children }: { title: string; children: ReactNode }) { return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text><View style={styles.card}>{children}</View></View>; }
 function Summary({ label, value, ok, neutral }: { label: string; value: string; ok: boolean; neutral?: boolean }) { return <View style={styles.summaryCard}><Text style={styles.summaryLabel}>{label}</Text><Text style={[styles.summaryValue, ok ? styles.ok : neutral ? styles.muted : styles.error]}>{value}</Text></View>; }
 function Choice({ selected, label, detail, tone, onPress }: { selected: boolean; label: string; detail?: string; tone?: "recommended" | "quality" | "previous"; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.choice, tone === "recommended" && styles.choiceRecommended, tone === "quality" && styles.choiceQuality, tone === "previous" && styles.choicePrevious, selected && styles.choiceSelected]}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable>; }
-function VoiceChoice({ selected, label, detail, onSelect, onPreview, previewing, previewDisabled }: { selected: boolean; label: string; detail?: string; onSelect: () => void; onPreview: () => void; previewing: boolean; previewDisabled: boolean }) { return <View style={[styles.voiceChoice, selected && styles.choiceSelected]}><Pressable onPress={onSelect} style={styles.voiceSelect}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable><Pressable onPress={onPreview} disabled={previewDisabled} style={[styles.previewButton, previewDisabled && styles.disabled]}><Text style={styles.previewText}>{previewing ? "…" : "▶ Preview"}</Text></Pressable></View>; }
+function VoiceChoice({ selected, label, detail, onSelect, onPreview, previewing, previewDisabled }: { selected: boolean; label: string; detail?: string; onSelect: () => void; onPreview: () => void; previewing: boolean; previewDisabled: boolean }) { const { t } = useUiText(); return <View style={[styles.voiceChoice, selected && styles.choiceSelected]}><Pressable onPress={onSelect} style={styles.voiceSelect}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable><Pressable onPress={onPreview} disabled={previewDisabled} style={[styles.previewButton, previewDisabled && styles.disabled]}><Text style={styles.previewText}>{previewing ? "…" : `▶ ${t("common.preview")}`}</Text></Pressable></View>; }
 function SmallChoice({ selected, label, onPress }: { selected: boolean; label: string; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.smallChoice, selected && styles.smallChoiceSelected]}><Text style={styles.value}>{selected ? `✓ ${label}` : label}</Text></Pressable>; }
-function SwitchRow({ label, value, onPress }: { label: string; value: boolean; onPress: () => void }) { return <Pressable onPress={onPress} style={styles.switchRow}><Text style={styles.value}>{label}</Text><Text style={[styles.pill, value && styles.pillOn]}>{value ? "Вкл" : "Выкл"}</Text></Pressable>; }
+function SwitchRow({ label, value, onPress }: { label: string; value: boolean; onPress: () => void }) { const { t } = useUiText(); return <Pressable onPress={onPress} style={styles.switchRow}><Text style={styles.value}>{label}</Text><Text style={[styles.pill, value && styles.pillOn]}>{value ? t("common.on") : t("common.off")}</Text></Pressable>; }
 function ButtonRow({ children }: { children: ReactNode }) { return <View style={styles.buttonRow}>{children}</View>; }
 function Action({ label, onPress, disabled, secondary }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) { return <Pressable onPress={onPress} disabled={disabled} style={[styles.action, secondary && styles.actionSecondary, disabled && styles.disabled]}><Text style={secondary ? styles.actionSecondaryText : styles.actionText}>{label}</Text></Pressable>; }
-function ModelLine({ label, status }: { label: string; status: SherpaModelCheck | null | undefined }) { return <View style={styles.modelLine}><Text style={styles.value}>{label}</Text><Text style={status?.ready ? styles.ok : styles.muted}>{status?.ready ? "Готово" : status ? "Не готово" : "Не проверено"}</Text></View>; }
+function ModelLine({ label, status }: { label: string; status: SherpaModelCheck | null | undefined }) { const { t } = useUiText(); return <View style={styles.modelLine}><Text style={styles.value}>{label}</Text><Text style={status?.ready ? styles.ok : styles.muted}>{status?.ready ? t("common.ready") : status ? t("common.notReady") : t("common.notChecked")}</Text></View>; }
 
 const styles = StyleSheet.create({
   summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },

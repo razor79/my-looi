@@ -14,6 +14,7 @@ import java.util.zip.ZipOutputStream
 class DiagnosticArchiveModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DiagnosticArchive")
+
     AsyncFunction("createZip") { sourceDirectoryUri: String, outputFileUri: String ->
       createZip(sourceDirectoryUri, outputFileUri)
     }

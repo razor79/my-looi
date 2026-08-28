@@ -22,6 +22,7 @@ import { wakeRobotFromFace } from "@/src/core/sleep-mode";
 import { setMainScreenFocused } from "@/src/core/main-screen-presence";
 import { useUserStore } from "@/src/store/user";
 import { useConversationStore } from "@/src/store/conversation";
+import { useUiText } from "@/src/i18n/use-ui-text";
 import { recordDiagnosticEvent } from "@/src/diagnostics/diagnostic-log";
 import { triggerCharacterReaction } from "@/src/character/character-reaction";
 import { classifyFaceTapImmediateRoute } from "@/src/character/face-tap-routing";
@@ -53,6 +54,7 @@ export default function IndexScreen() {
   const listeningLanguage = useUserStore((state) => state.preferences.listeningLanguage);
   const responseLanguage = useUserStore((state) => state.preferences.language);
   const updatePreferences = useUserStore((state) => state.updatePreferences);
+  const { t } = useUiText();
 
   useEffect(() => () => {
     if (idleTapTimerRef.current) clearTimeout(idleTapTimerRef.current);
@@ -256,12 +258,12 @@ export default function IndexScreen() {
         : "disconnected";
 
   const robotConnectionLabel = robotConnectionMode === "connecting"
-    ? "Подключаю…"
+    ? t("home.robot.connecting")
     : robotConnectionMode === "connected"
-      ? "Подключён"
+      ? t("home.robot.connected")
       : robotConnectionMode === "error"
-        ? "Повторить подключение"
-        : "Подключить робота";
+        ? t("home.robot.retry")
+        : t("home.robot.connect");
 
 
   return (
@@ -291,7 +293,7 @@ export default function IndexScreen() {
       <View style={styles.languagePicker}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Язык, который слушает LOOI: ${listeningLanguage}`}
+          accessibilityLabel={t("home.listeningLanguageA11y", { language: listeningLanguage })}
           onPress={() => setLanguageMenu((value) => value === "listening" ? null : "listening")}
           style={styles.languageButton}
         >
@@ -299,7 +301,7 @@ export default function IndexScreen() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Язык ответов LOOI: ${responseLanguage}`}
+          accessibilityLabel={t("home.responseLanguageA11y", { language: responseLanguage })}
           onPress={() => setLanguageMenu((value) => value === "response" ? null : "response")}
           style={styles.languageButton}
         >
@@ -307,7 +309,7 @@ export default function IndexScreen() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Настройки LOOI"
+          accessibilityLabel={t("home.settingsA11y")}
           onPress={() => router.replace("/settings")}
           style={styles.settingsButton}
         >
@@ -371,9 +373,9 @@ export default function IndexScreen() {
             style={styles.repairBanner}
           >
             <Text style={styles.repairTitle}>
-              Голосовые модели не готовы
+              {t("home.modelsNotReady")}
             </Text>
-            <Text style={styles.repairText}>Открыть настройку и исправить</Text>
+            <Text style={styles.repairText}>{t("home.repairModels")}</Text>
           </Pressable>
         ) : null}
         <RobotFace
@@ -398,7 +400,7 @@ export default function IndexScreen() {
         {robotSleeping ? (
           <View pointerEvents="none" style={styles.sleepBadge}>
             <Text style={styles.sleepTitle}>Zzz</Text>
-            <Text style={styles.sleepText}>Два тапа по лицу — разбудить</Text>
+            <Text style={styles.sleepText}>{t("home.wakeFromSleep")}</Text>
           </View>
         ) : null}
       </View>

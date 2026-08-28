@@ -2,6 +2,7 @@ import { Image } from "expo-image";
 import { View, Text, StyleSheet } from "react-native";
 import { ChatMessage } from "../store/conversation";
 import { looiTheme } from "./looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -10,15 +11,16 @@ interface ChatBubbleProps {
 
 export function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.role === "user";
+  const { locale, t } = useUiText();
 
   return (
     <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
       <View style={[styles.marker, isUser ? styles.userMarker : styles.assistantMarker]} />
       <View style={[styles.panel, isUser ? styles.userPanel : styles.assistantPanel]}>
         <View style={styles.header}>
-          <Text style={styles.roleLabel}>{isUser ? "Вы" : "LOOI"}</Text>
+          <Text style={styles.roleLabel}>{isUser ? t("common.you") : "LOOI"}</Text>
           <Text style={styles.timestamp}>
-            {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
+            {new Date(message.timestamp).toLocaleTimeString(locale, {
               hour: "2-digit",
               minute: "2-digit",
             })}

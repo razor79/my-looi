@@ -2,15 +2,15 @@
   "expo": {
     "name": "My LOOI",
     "slug": "my-looi",
-    "version": "2.1.112",
+    "version": "2.1.122",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
-    "scheme": "superlooiapp",
+    "scheme": "mylooi",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.superlooiapp",
-      "buildNumber": "40"
+      "bundleIdentifier": "io.github.razor79.mylooi",
+      "buildNumber": "41"
     },
     "android": {
       "adaptiveIcon": {
@@ -20,8 +20,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.superlooiapp",
-      "versionCode": 112
+      "package": "io.github.razor79.mylooi",
+      "versionCode": 122
     },
     "web": {
       "bundler": "metro",

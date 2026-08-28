@@ -20,6 +20,11 @@ import {
   normalizeListeningLanguage,
   type ListeningLanguage,
 } from "../language/listening-language";
+import {
+  detectSystemInterfaceLanguage,
+  normalizeInterfaceLanguage,
+  type InterfaceLanguage,
+} from "../i18n/ui-language";
 
 export type VoiceState =
   | "sleeping"
@@ -41,6 +46,8 @@ export function isPcmRealtimeMode(mode: ConversationMode): boolean {
 }
 
 export type UserPreferences = {
+  /** Language used by the local application interface. Independent from voice I/O. */
+  interfaceLanguage: InterfaceLanguage;
   /** Language expected from the user by wake fallback and remote STT. */
   listeningLanguage: ListeningLanguage;
   /** Language used by LOOI for replies and system messages. */
@@ -84,7 +91,7 @@ interface UserState {
 }
 
 type StoredPreferences = {
-  version: 1 | 2 | 3 | 4 | 5;
+  version: 1 | 2 | 3 | 4 | 5 | 6;
   preferences: UserPreferences;
 };
 
@@ -92,6 +99,7 @@ const USER_PREFERENCES_KEY = "looi.user-preferences.v1";
 const ROBOT_SLEEPING_KEY = "looi.robot-sleeping.v1";
 const preferencesStorage = createMMKV({ id: "looi.user-preferences" });
 const DEFAULT_PREFERENCES: UserPreferences = {
+  interfaceLanguage: detectSystemInterfaceLanguage(),
   listeningLanguage: DEFAULT_LISTENING_LANGUAGE,
   language: DEFAULT_RESPONSE_LANGUAGE,
   ttsEnabled: true,
@@ -112,6 +120,11 @@ function loadPreferences(): UserPreferences {
     const preferences = stored.preferences;
     if (!preferences) return DEFAULT_PREFERENCES;
     const normalized: UserPreferences = {
+      // v2.1.121 introduces an independent UI language. Existing installs use
+      // the Android/system locale when this preference is absent.
+      interfaceLanguage: normalizeInterfaceLanguage(
+        (preferences as Partial<UserPreferences>).interfaceLanguage
+      ),
       // v1.1.27 splits input/listening language from response language. Existing
       // installs migrate to the old response language so both remain equal.
       listeningLanguage: normalizeListeningLanguage(
@@ -139,11 +152,12 @@ function loadPreferences(): UserPreferences {
       })(),
     };
     if (
+      (preferences as Partial<UserPreferences>).interfaceLanguage !== normalized.interfaceLanguage ||
       (preferences as Partial<UserPreferences>).listeningLanguage !== normalized.listeningLanguage ||
       (preferences as Partial<UserPreferences>).realtimeModelId !== normalized.realtimeModelId ||
       preferences.ttsVoiceId !== normalized.ttsVoiceId ||
       preferences.ttsStyleId !== normalized.ttsStyleId ||
-      stored.version !== 5 ||
+      stored.version !== 6 ||
       (preferences as Partial<UserPreferences>).conversationMode !== normalized.conversationMode ||
       Object.prototype.hasOwnProperty.call(preferences, "memoryBackend") ||
       Object.prototype.hasOwnProperty.call(preferences, "cameraEnabled") ||
@@ -159,7 +173,7 @@ function loadPreferences(): UserPreferences {
 }
 
 function savePreferences(preferences: UserPreferences): void {
-  const payload: StoredPreferences = { version: 5, preferences };
+  const payload: StoredPreferences = { version: 6, preferences };
   preferencesStorage.set(USER_PREFERENCES_KEY, JSON.stringify(payload));
 }
 

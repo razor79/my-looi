@@ -1,0 +1,16 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.appupdateinstaller'
+version = '1.0.0'
+
+expoModule { canBePublished false }
+
+android {
+  namespace 'com.superlooi.appupdateinstaller'
+  defaultConfig { minSdkVersion 24 }
+}
+
+dependencies {
+  implementation 'androidx.core:core:1.15.0'
+}

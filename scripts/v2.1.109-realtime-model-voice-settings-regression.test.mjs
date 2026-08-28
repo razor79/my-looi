@@ -81,11 +81,14 @@ const realtimeVoiceIdsBlock = voices.match(/REALTIME_VOICE_IDS = \[([\s\S]*?)\] 
 for (const unsupported of ["fable", "nova", "onyx"]) assert.doesNotMatch(realtimeVoiceIdsBlock, new RegExp(`\\b${unsupported}\\b`));
 
 const settings = readFileSync("app/(tabs)/settings.tsx", "utf8");
+const uiStrings = readFileSync("src/i18n/ui-strings.ts", "utf8");
 assert.match(settings, /listOpenAiRealtimeModels/);
 assert.match(settings, /formatConversationCostPerMinute/);
-assert.match(settings, /Обновить модели/);
-assert.match(settings, /30 сек говорит человек и 30 сек LOOI/);
-assert.match(settings, /▶ Preview/);
+assert.match(settings, /t\("settings\.refreshModels"\)/);
+assert.match(settings, /t\("settings\.modelsHelp"\)/);
+assert.match(settings, /t\("common\.preview"\)/);
+assert.match(uiStrings, /"settings\.refreshModels": "Refresh models"/);
+assert.match(uiStrings, /30 секунд говорит человек и 30 секунд LOOI|30 сек говорит человек и 30 сек LOOI/);
 assert.match(settings, /playOpenAiRealtimeVoicePreview/);
 assert.match(settings, /setWakewordFeedingEnabled\(false\)/);
 assert.match(settings, /updatePreferences\(\{ realtimeModelId: model\.id \}\)/);

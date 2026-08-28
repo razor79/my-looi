@@ -9,6 +9,9 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileInputStream
 import java.io.ByteArrayOutputStream
 
 class BackupStorageAccessModule : Module() {
@@ -73,6 +76,42 @@ class BackupStorageAccessModule : Module() {
 
       queryFileMetadata(target, safeName).toMutableMap().apply {
         this["size"] = bytes.size.toDouble()
+      }
+    }
+
+    AsyncFunction("writePrivateFile") Coroutine { treeUri: String, fileName: String, mimeType: String, sourceFileUri: String ->
+      val tree = Uri.parse(requireTreeUri(treeUri))
+      ensurePersistedPermission(tree, requireWrite = true)
+      val safeName = requireFileName(fileName)
+      val safeMime = mimeType.trim().ifEmpty { "application/octet-stream" }
+      require(safeMime.length <= 120 && !safeMime.any { it.isWhitespace() }) { "Invalid MIME type" }
+      val source = requirePrivateFile(sourceFileUri)
+      val resolver = requireResolver()
+      val existing = findChild(tree, safeName)
+      val target = existing?.uri ?: DocumentsContract.createDocument(
+        resolver,
+        rootDocumentUri(tree),
+        safeMime,
+        safeName
+      ) ?: throw IllegalStateException("Selected storage provider could not create the file")
+
+      var bytes = 0L
+      resolver.openOutputStream(target, "rwt")?.use { output ->
+        BufferedInputStream(FileInputStream(source)).use { input ->
+          val buffer = ByteArray(64 * 1024)
+          while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (read == 0) continue
+            output.write(buffer, 0, read)
+            bytes += read.toLong()
+          }
+        }
+        output.flush()
+      } ?: throw IllegalStateException("Selected storage provider could not open the file for writing")
+
+      queryFileMetadata(target, safeName).toMutableMap().apply {
+        this["size"] = bytes.toDouble()
       }
     }
 
@@ -182,6 +221,23 @@ class BackupStorageAccessModule : Module() {
     require(trimmed.length <= 160) { "Backup file name is too long" }
     require(!trimmed.contains('/') && !trimmed.contains('\\')) { "Backup file name must not contain path separators" }
     return trimmed
+  }
+
+  private fun requirePrivateFile(value: String): File {
+    val uri = Uri.parse(value)
+    val file = when (uri.scheme) {
+      null, "" -> File(value)
+      "file" -> File(uri.path ?: throw IllegalArgumentException("Invalid private file URI"))
+      else -> throw IllegalArgumentException("Only private file:// sources are supported")
+    }.canonicalFile
+    val context = appContext.reactContext
+      ?: throw IllegalStateException("Android application context is unavailable")
+    val roots = listOf(context.cacheDir.canonicalFile, context.filesDir.canonicalFile)
+    require(roots.any { root -> file.path == root.path || file.path.startsWith(root.path + File.separator) }) {
+      "Only My LOOI private cache/files can be copied to external storage"
+    }
+    require(file.isFile) { "Private source file does not exist" }
+    return file
   }
 
   private fun rootDocumentUri(treeUri: Uri): Uri = DocumentsContract.buildDocumentUriUsingTree(

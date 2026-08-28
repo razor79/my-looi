@@ -9,7 +9,7 @@ assert.ok(pcm.includes('parseRealtimePhysicalCommand(transcript)'), "PCM transcr
 assert.ok(pcm.includes('executeRealtimePhysicalCommand(physicalCommand, transcript)'), "PCM must execute intercepted physical commands locally");
 assert.ok(pcm.includes('type: "response.cancel"'), "Realtime response must be cancellable when a local physical command is intercepted");
 assert.ok(pcm.includes('pcm-response-suppressed-for-physical-command'), "late response.created events must be suppressed during local physical execution");
-assert.ok(pcm.includes('if (this.isSuppressedResponseEvent(event)) return;'), "generated model audio/transcript from an intercepted command response must not leak through");
+assert.ok(pcm.includes('if (this.localPhysicalCommandInFlight) return;'), "generated model audio/transcript must not leak through while a local command is executing");
 
 assert.ok(helper.includes('parseExplicitRobotCommand(transcript)'), "Realtime routing must reuse the deterministic addressed-command parser");
 assert.ok(helper.includes('containsEmergencyStopWord(transcript)'), "standalone STOP must remain an absolute safety command");

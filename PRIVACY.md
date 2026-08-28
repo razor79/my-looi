@@ -23,7 +23,11 @@ When the app enters the background or the device enters the app's sleep/screen-o
 
 ## Diagnostics
 
-Diagnostic export is user-triggered. Normal diagnostic logging does not retain microphone WAV recordings. Before sharing a diagnostic ZIP publicly, review it for device-specific or conversation-specific information.
+Diagnostic export is user-triggered. Normal diagnostic logging does not retain microphone WAV recordings. A diagnostic ZIP can be sent through the Android share sheet (for example to Google Drive when that app is installed) or written to a local folder explicitly granted through Android Documents/SAF. My LOOI does not request direct Google Drive authorization, does not store Google Drive tokens or folder IDs, and does not automatically or in the background upload diagnostics. Before sharing a diagnostic ZIP publicly, review it for device-specific or conversation-specific information.
+
+## Update checks
+
+My LOOI contacts the public GitHub Releases API only when the user explicitly checks for an update. Downloading an APK is also user-triggered. The updater does not use a GitHub account or token. A downloaded APK is verified locally before My LOOI hands it to the Android package installer.
 
 ## Backups
 

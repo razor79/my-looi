@@ -1,3 +1,4 @@
+import type { InterfaceLanguage } from "../i18n/ui-language";
 export const DEFAULT_REALTIME_MODEL_ID = "gpt-realtime-2.1-mini";
 
 export type OpenAiRealtimeModel = {
@@ -112,9 +113,13 @@ function getKnownAudioPricing(id: string): Omit<RealtimeConversationCostEstimate
   return null;
 }
 
-export function formatConversationCostPerMinute(id: string): string | null {
+export function formatConversationCostPerMinute(
+  id: string,
+  language: InterfaceLanguage = "ru"
+): string | null {
   const estimate = estimateRealtimeConversationCost(id);
   if (!estimate) return null;
   const roundedCents = Math.round(estimate.usdPerMinute * 100 + 1e-9) / 100;
-  return `≈ $${roundedCents.toFixed(2)}/мин разговора`;
+  const suffix = language === "uk" ? "хв розмови" : language === "en" ? "min conversation" : "мин разговора";
+  return `≈ $${roundedCents.toFixed(2)}/${suffix}`;
 }

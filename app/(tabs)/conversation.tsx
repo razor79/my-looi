@@ -17,6 +17,7 @@ import { useConversationStore } from "@/src/store/conversation";
 import { ChatBubble } from "@/src/ui/ChatBubble";
 import { DeviceShell, DeviceShellHeader } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
 
 type LoadedMessages = Record<string, ChatMessage[]>;
 
@@ -97,6 +98,7 @@ export default function ConversationScreen() {
   const activeSessionId = useConversationStore((state) => state.activeSessionId);
   const activeMessages = useConversationStore((state) => state.messages);
   const [state, dispatch] = useReducer(historyReducer, initialHistoryState);
+  const { locale, t } = useUiText();
   const { sessions, expandedSessionId, loadedMessages, loading, refreshing, error } = state;
 
   const orderedSessions = useMemo(() => {
@@ -115,9 +117,9 @@ export default function ConversationScreen() {
       dispatch({ type: "load:success", sessions });
     } catch (loadError) {
       console.warn("[ConversationScreen] Failed to load sessions:", loadError);
-      dispatch({ type: "load:error", error: "Не удалось загрузить локальную историю." });
+      dispatch({ type: "load:error", error: t("history.loadError") });
     }
-  }, []);
+  }, [t]);
 
   const loadMessages = useCallback(
     async (sessionId: string) => {
@@ -135,10 +137,10 @@ export default function ConversationScreen() {
         dispatch({ type: "messages:success", sessionId, messages });
       } catch (loadError) {
         console.warn("[ConversationScreen] Failed to load messages:", loadError);
-        dispatch({ type: "messages:error", error: "Не удалось загрузить сообщения." });
+        dispatch({ type: "messages:error", error: t("history.messagesLoadError") });
       }
     },
-    [activeMessages, activeSessionId, loadedMessages]
+    [activeMessages, activeSessionId, loadedMessages, t]
   );
 
   const toggleSession = useCallback(
@@ -177,11 +179,11 @@ export default function ConversationScreen() {
           <View style={styles.sessionHeader}>
             <View style={styles.sessionTitleGroup}>
               <View style={styles.sessionTitleRow}>
-                <Text style={styles.sessionTitle}>{formatSessionTitle(item)}</Text>
-                {isActive ? <Text style={styles.activeBadge}>Сейчас</Text> : null}
+                <Text style={styles.sessionTitle}>{formatSessionTitle(item, locale, t("history.untitled"))}</Text>
+                {isActive ? <Text style={styles.activeBadge}>{t("history.active")}</Text> : null}
               </View>
               <Text style={styles.sessionMeta}>
-                {formatTimeRange(item, isActive)} · сообщений: {item.messageCount}
+                {formatTimeRange(item, isActive, locale, t("common.now"))} · {t("history.messages", { count: item.messageCount })}
                 {(item.usageEventCount ?? 0) > 0
                   ? ` · 💰 ${item.hasEstimatedCost ? "~" : ""}$${(item.costUsd ?? 0).toFixed(4)}`
                   : ""}
@@ -192,11 +194,11 @@ export default function ConversationScreen() {
                 </Text>
               ) : null}
             </View>
-            <Text style={styles.expandMark}>{isExpanded ? "Скрыть" : "Открыть"}</Text>
+            <Text style={styles.expandMark}>{isExpanded ? t("history.hide") : t("history.show")}</Text>
           </View>
 
           <Text numberOfLines={isExpanded ? 4 : 2} style={styles.summaryText}>
-            {item.summary || (isActive ? "Этот диалог ещё продолжается." : "Нет краткого итога.")}
+            {item.summary || (isActive ? t("history.activeSummary") : t("history.noSummary"))}
           </Text>
 
           {isExpanded ? (
@@ -208,7 +210,7 @@ export default function ConversationScreen() {
               ) : (
                 <View style={styles.messagesLoading}>
                   <ActivityIndicator color={looiTheme.cyan} />
-                  <Text style={styles.messagesLoadingText}>Загрузка сообщений</Text>
+                  <Text style={styles.messagesLoadingText}>{t("history.loadingMessages")}</Text>
                 </View>
               )}
             </View>
@@ -216,20 +218,20 @@ export default function ConversationScreen() {
         </Pressable>
       );
     },
-    [activeSessionId, expandedSessionId, loadedMessages, toggleSession]
+    [activeSessionId, expandedSessionId, loadedMessages, locale, t, toggleSession]
   );
 
   const listHeader = (
     <>
       <DeviceShellHeader
-        title="История"
-        eyebrow="SESSION LOG"
+        title={t("history.title")}
+        eyebrow={t("history.eyebrow")}
         onReturnHome={() => router.replace("/")}
       />
       <View style={styles.headerBand}>
-        <Text style={styles.headerLabel}>История диалогов</Text>
+        <Text style={styles.headerLabel}>{t("history.heading")}</Text>
         <Text style={styles.headerValue}>
-          {activeSessionId ? "Локальная история разговоров" : "История хранится локально на LOOI"}
+          {activeSessionId ? t("history.localActive") : t("history.localStored")}
         </Text>
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -238,8 +240,8 @@ export default function ConversationScreen() {
 
   return (
     <DeviceShell
-      title="История"
-      eyebrow="SESSION LOG"
+      title={t("history.title")}
+      eyebrow={t("history.eyebrow")}
       scroll={false}
       onReturnHome={() => router.replace("/")}
     >
@@ -252,7 +254,7 @@ export default function ConversationScreen() {
             ListEmptyComponent={
               <View style={styles.loadingState}>
                 <ActivityIndicator color={looiTheme.cyan} />
-                <Text style={styles.loadingText}>Загрузка истории</Text>
+                <Text style={styles.loadingText}>{t("history.loading")}</Text>
               </View>
             }
             contentContainerStyle={[styles.listContent, styles.emptyListContent]}
@@ -272,8 +274,8 @@ export default function ConversationScreen() {
             onRefresh={() => loadSessions(true)}
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Text style={styles.emptyTitle}>История пока пуста</Text>
-                <Text style={styles.emptyBody}>Начни разговор с LOOI на главном экране.</Text>
+                <Text style={styles.emptyTitle}>{t("history.empty")}</Text>
+                <Text style={styles.emptyBody}>{t("history.emptyHelp")}</Text>
               </View>
             }
             showsVerticalScrollIndicator={false}
@@ -284,12 +286,12 @@ export default function ConversationScreen() {
   );
 }
 
-function formatSessionTitle(session: SessionSummary): string {
+function formatSessionTitle(session: SessionSummary, locale: string, untitled: string): string {
   const date = new Date(session.startedAt);
   if (Number.isNaN(date.getTime())) {
-    return "Диалог без названия";
+    return untitled;
   }
-  return date.toLocaleDateString("ru-RU", {
+  return date.toLocaleDateString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -297,18 +299,18 @@ function formatSessionTitle(session: SessionSummary): string {
   });
 }
 
-function formatTimeRange(session: SessionSummary, isActive: boolean): string {
-  const startedAt = formatClock(session.startedAt);
-  const endedAt = isActive ? "сейчас" : session.endedAt ? formatClock(session.endedAt) : "--:--";
+function formatTimeRange(session: SessionSummary, isActive: boolean, locale: string, nowLabel: string): string {
+  const startedAt = formatClock(session.startedAt, locale);
+  const endedAt = isActive ? nowLabel : session.endedAt ? formatClock(session.endedAt, locale) : "--:--";
   return `${startedAt} - ${endedAt}`;
 }
 
-function formatClock(value: string): string {
+function formatClock(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "--:--";
   }
-  return date.toLocaleTimeString("ru-RU", {
+  return date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
   });

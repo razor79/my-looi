@@ -22,8 +22,10 @@ const forbiddenPaths = [
 ];
 for (const path of forbiddenPaths) assert.equal(existsSync(join(root, path)), false, `${path} must not be in the public tree`);
 
+const allowLocalBuildEnv = process.env.MY_LOOI_BUILD_ALLOW_LOCAL_ENV === "1";
 for (const name of readdirSync(root)) {
   if (name === ".env.example") continue;
+  if (name === ".env" && allowLocalBuildEnv) continue;
   assert.equal(/^\.env(?:\.|$)/.test(name), false, `${name} is a local environment file and must not be public`);
 }
 

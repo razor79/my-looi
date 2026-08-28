@@ -10,6 +10,7 @@ const native = fs.readFileSync(
 );
 const gradle = fs.readFileSync("modules/backup-storage-access/android/build.gradle", "utf8");
 const ui = fs.readFileSync("app/(tabs)/settings.tsx", "utf8");
+const uiStrings = fs.readFileSync("src/i18n/ui-strings.ts", "utf8");
 const rootPackage = fs.readFileSync("package.json", "utf8");
 const modulePackage = fs.readFileSync("modules/backup-storage-access/package.json", "utf8");
 const moduleConfig = fs.readFileSync("modules/backup-storage-access/expo-module.config.json", "utf8");
@@ -52,8 +53,11 @@ assert.match(moduleConfig, /com\.superlooi\.backupstorageaccess\.BackupStorageAc
 assert.match(manifest, /<manifest/);
 assert.doesNotMatch(manifest, /READ_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE/);
 
-assert.match(ui, /Память и backup/);
-assert.match(ui, /Выбрать папку/);
+assert.match(ui, /t\("settings\.memoryBackup"\)/);
+assert.match(ui, /t\("settings\.chooseFolder"\)/);
+assert.match(uiStrings, /"settings\.memoryBackup": "Memory and backup"/);
+assert.match(uiStrings, /"settings\.memoryBackup": "Пам’ять і резервна копія"/);
+assert.match(uiStrings, /"settings\.memoryBackup": "Память и резервная копия"/);
 assert.match(ui, /restoreLocalMemoryFromSelectedFolder/);
 assert.doesNotMatch(ui, /Google Web OAuth Client ID|Войти через Google|appDataFolder/);
 

@@ -2,6 +2,8 @@ import { Image } from "expo-image";
 import { View, Text, StyleSheet } from "react-native";
 import { MemoryResult } from "../core/context-service";
 import { looiTheme } from "./looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import type { UiStringKey } from "@/src/i18n/ui-strings";
 
 interface MemoryCardProps {
   memory: MemoryResult;
@@ -9,9 +11,10 @@ interface MemoryCardProps {
 }
 
 export function MemoryCard({ memory }: MemoryCardProps) {
-  const categoryLabel = getCategoryLabel(memory.metadata?.category);
-  const sourceLabel = getSourceLabel(memory.metadata?.source);
-  const timeStr = formatMemoryTime(memory);
+  const { locale, t } = useUiText();
+  const categoryLabel = t(getCategoryKey(memory.metadata?.category));
+  const sourceLabel = t(getSourceKey(memory.metadata?.source));
+  const timeStr = formatMemoryTime(memory, locale, t("memory.timeUnknown"));
 
   return (
     <View style={styles.card}>
@@ -32,10 +35,10 @@ export function MemoryCard({ memory }: MemoryCardProps) {
   );
 }
 
-function formatMemoryTime(memory: MemoryResult): string {
+function formatMemoryTime(memory: MemoryResult, locale: string, unknownLabel: string): string {
   const raw = memory.createdAt || memory.metadata?.timestamp;
-  if (!raw) return "Время неизвестно";
-  return new Date(raw).toLocaleString("ru-RU", {
+  if (!raw) return unknownLabel;
+  return new Date(raw).toLocaleString(locale, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -43,35 +46,24 @@ function formatMemoryTime(memory: MemoryResult): string {
   });
 }
 
-function getCategoryLabel(category?: string): string {
+function getCategoryKey(category?: string): UiStringKey {
   switch (category) {
-    case "placement":
-      return "Вещи";
-    case "preference":
-      return "Предпочтения";
-    case "reminder":
-      return "Напоминания";
-    case "scene":
-      return "Сцены";
-    case "calendar":
-      return "Календарь";
-    default:
-      return "Заметки";
+    case "placement": return "memory.placement";
+    case "preference": return "memory.preference";
+    case "reminder": return "memory.reminder";
+    case "scene": return "memory.scene";
+    case "calendar": return "memory.calendar";
+    default: return "memory.note";
   }
 }
 
-function getSourceLabel(source?: string): string {
+function getSourceKey(source?: string): UiStringKey {
   switch (source) {
-    case "voice+camera":
-      return "Голос + камера";
-    case "voice":
-      return "Голос";
-    case "camera":
-      return "Камера";
-    case "calendar":
-      return "Календарь";
-    default:
-      return "Система";
+    case "voice+camera": return "memory.source.voiceCamera";
+    case "voice": return "memory.source.voice";
+    case "camera": return "memory.source.camera";
+    case "calendar": return "memory.source.calendar";
+    default: return "memory.source.system";
   }
 }
 

@@ -13,18 +13,22 @@ import { MemoryCard } from "@/src/ui/MemoryCard";
 import { MemoryCategory } from "@/src/core/observation";
 import { DeviceShell, DeviceShellHeader } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import type { UiStringKey } from "@/src/i18n/ui-strings";
 
-const CATEGORIES: { label: string; value: MemoryCategory | "all" }[] = [
-  { label: "Все", value: "all" },
-  { label: "Вещи", value: "placement" },
-  { label: "Предпочтения", value: "preference" },
-  { label: "Напоминания", value: "reminder" },
-  { label: "Заметки", value: "note" },
-  { label: "Календарь", value: "calendar" },
+const CATEGORIES: { labelKey: UiStringKey; value: MemoryCategory | "all" }[] = [
+  { labelKey: "memory.all", value: "all" },
+  { labelKey: "memory.placement", value: "placement" },
+  { labelKey: "memory.preference", value: "preference" },
+  { labelKey: "memory.reminder", value: "reminder" },
+  { labelKey: "memory.note", value: "note" },
+  { labelKey: "memory.calendar", value: "calendar" },
 ];
 
+type MemoryBucket = "today" | "yesterday" | "earlier";
+
 type MemorySection = {
-  title: "Сегодня" | "Вчера" | "Раньше";
+  bucket: MemoryBucket;
   data: MemoryResult[];
 };
 
@@ -54,6 +58,7 @@ export default function MemoriesScreen() {
     initialMemoryViewState
   );
   const [selectedCategory, setSelectedCategory] = useState<MemoryCategory | "all">("all");
+  const { t } = useUiText();
 
   const loadMemories = useCallback(async () => {
     dispatch({ type: "load-start" });
@@ -66,10 +71,10 @@ export default function MemoriesScreen() {
     } catch (error) {
       dispatch({
         type: "load-failure",
-        message: getMemoryLoadErrorMessage(error),
+        message: getMemoryLoadErrorMessage(error, t),
       });
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, t]);
 
   useEffect(() => {
     loadMemories();
@@ -97,12 +102,12 @@ export default function MemoriesScreen() {
   );
   const listHeader = (
     <>
-      <DeviceShellHeader title="Память" eyebrow="ЗАПИСИ LOOI" />
+      <DeviceShellHeader title={t("memory.title")} eyebrow={t("memory.eyebrow")} />
       <View style={styles.headerPanel}>
         <View>
-          <Text style={styles.headerLabel}>Сохранённые факты</Text>
+          <Text style={styles.headerLabel}>{t("memory.savedFacts")}</Text>
           <Text style={styles.headerCopy}>
-            {loadError ?? "Недавние факты и связанные изображения."}
+            {loadError ?? t("memory.recentFacts")}
           </Text>
         </View>
         <Text style={styles.countText}>{memories.length}</Text>
@@ -118,7 +123,7 @@ export default function MemoriesScreen() {
               onPress={() => setSelectedCategory(cat.value)}
             >
               <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {cat.label}
+                {t(cat.labelKey)}
               </Text>
             </Pressable>
           );
@@ -128,7 +133,7 @@ export default function MemoriesScreen() {
   );
 
   return (
-    <DeviceShell title="Память" eyebrow="ЗАПИСИ LOOI" scroll={false}>
+    <DeviceShell title={t("memory.title")} eyebrow={t("memory.eyebrow")} scroll={false}>
       <SectionList
         sections={sections}
         style={styles.list}
@@ -137,7 +142,7 @@ export default function MemoriesScreen() {
         ListHeaderComponent={listHeader}
         renderSectionHeader={({ section }) =>
           section.data.length > 0 ? (
-            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <Text style={styles.sectionTitle}>{t(getBucketLabelKey(section.bucket))}</Text>
           ) : null
         }
         contentContainerStyle={[
@@ -149,10 +154,10 @@ export default function MemoriesScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>
-              {loading ? "Загрузка…" : loadError ? "Память недоступна" : "Память пока пуста"}
+              {loading ? t("memory.loading") : loadError ? t("memory.unavailable") : t("memory.empty")}
             </Text>
             <Text style={styles.emptyText}>
-              {loadError || "LOOI сохранит здесь полезные факты после подтверждения."}
+              {loadError || t("memory.emptyHelp")}
             </Text>
           </View>
         }
@@ -197,31 +202,31 @@ function memoryViewReducer(
 function groupMemories(memories: MemoryResult[]): MemorySection[] {
   const sorted = [...memories].sort(compareMemoryByNewest);
   const groups: MemorySection[] = [
-    { title: "Сегодня", data: [] },
-    { title: "Вчера", data: [] },
-    { title: "Раньше", data: [] },
+    { bucket: "today", data: [] },
+    { bucket: "yesterday", data: [] },
+    { bucket: "earlier", data: [] },
   ];
 
   sorted.forEach((memory) => {
     const bucket = getMemoryBucket(memory);
-    groups.find((group) => group.title === bucket)?.data.push(memory);
+    groups.find((group) => group.bucket === bucket)?.data.push(memory);
   });
 
   return groups.filter((group) => group.data.length > 0);
 }
 
-function getMemoryBucket(memory: MemoryResult): MemorySection["title"] {
+function getMemoryBucket(memory: MemoryResult): MemoryBucket {
   const time = getMemoryTime(memory);
-  if (!time) return "Раньше";
+  if (!time) return "earlier";
 
   const date = new Date(time);
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
 
-  if (date.getTime() >= todayStart) return "Сегодня";
-  if (date.getTime() >= yesterdayStart) return "Вчера";
-  return "Раньше";
+  if (date.getTime() >= todayStart) return "today";
+  if (date.getTime() >= yesterdayStart) return "yesterday";
+  return "earlier";
 }
 
 function getMemoryTime(memory: MemoryResult): number {
@@ -233,12 +238,21 @@ function compareMemoryByNewest(a: MemoryResult, b: MemoryResult): number {
   return getMemoryTime(b) - getMemoryTime(a);
 }
 
-function getMemoryLoadErrorMessage(error: unknown): string {
+function getBucketLabelKey(bucket: MemoryBucket): UiStringKey {
+  if (bucket === "today") return "memory.today";
+  if (bucket === "yesterday") return "memory.yesterday";
+  return "memory.earlier";
+}
+
+function getMemoryLoadErrorMessage(
+  error: unknown,
+  t: (key: UiStringKey) => string
+): string {
   if (error instanceof Error && error.message.includes("Failed to connect")) {
-    return "Сервис памяти недоступен. Попробуй обновить страницу позже.";
+    return t("memory.loadServiceError");
   }
 
-  return "Не удалось загрузить память. Попробуй обновить страницу позже.";
+  return t("memory.loadError");
 }
 
 const styles = StyleSheet.create({

@@ -1,5 +1,7 @@
 import { RobotFace } from "@/src/ui/RobotFace";
 import { looiTheme } from "@/src/ui/looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import type { UiStringKey } from "@/src/i18n/ui-strings";
 import { Href, usePathname, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import regularSymbolWeight from "expo-symbols/androidWeights/regular";
@@ -25,19 +27,19 @@ const navItems = [
   {
     href: "/conversation",
     matchPath: "/conversation",
-    label: "Диалоги",
+    labelKey: "nav.conversations" as UiStringKey,
     symbol: { ios: "message.fill", android: "chat" },
   },
   {
     href: "/memories",
     matchPath: "/memories",
-    label: "Память",
+    labelKey: "nav.memory" as UiStringKey,
     symbol: { ios: "brain.head.profile", android: "psychology" },
   },
   {
     href: "/settings",
     matchPath: "/settings",
-    label: "Настройки",
+    labelKey: "nav.settings" as UiStringKey,
     symbol: { ios: "gearshape.fill", android: "settings" },
   },
 ] as const;
@@ -51,6 +53,7 @@ export function DeviceShell({
 }: DeviceShellProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useUiText();
   const returnHome = () => {
     if (onReturnHome) {
       onReturnHome();
@@ -78,7 +81,7 @@ export function DeviceShell({
         <View style={styles.rail}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Вернуться к LOOI"
+            accessibilityLabel={t("nav.returnHome")}
             onPress={returnHome}
             style={styles.homeButton}
           >
@@ -118,7 +121,7 @@ export function DeviceShell({
                   <Text
                     style={[styles.navLabel, active && styles.navLabelActive]}
                   >
-                    {item.label}
+                    {t(item.labelKey)}
                   </Text>
                 </Pressable>
               );

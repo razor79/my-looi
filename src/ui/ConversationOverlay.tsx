@@ -8,6 +8,8 @@ import Animated, {
 import { useConversationStore } from "@/src/store/conversation";
 import { isRealtimeConversationMode, useUserStore, type ConversationMode } from "@/src/store/user";
 import { looiTheme } from "@/src/ui/looi-theme";
+import { useUiText } from "@/src/i18n/use-ui-text";
+import type { UiStringKey } from "@/src/i18n/ui-strings";
 
 const IDLE_HIDE_DELAY_MS = 3000;
 
@@ -21,6 +23,7 @@ export function ConversationOverlay() {
   const realtimeReadiness = useConversationStore((state) => state.realtimeReadiness);
   const conversationMode = useUserStore((state) => state.preferences.conversationMode);
   const setOverlayVisible = useConversationStore((state) => state.setOverlayVisible);
+  const { t } = useUiText();
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(-8);
 
@@ -51,12 +54,14 @@ export function ConversationOverlay() {
     isSpeaking,
     conversationMode,
     realtimeReadiness,
+    t,
   });
   const assistantText = streamingText || getFallbackAssistantText({
     isListening,
     isProcessing,
     conversationMode,
     realtimeReadiness,
+    t,
   });
 
   return (
@@ -87,22 +92,24 @@ function getStatusLabel({
   isSpeaking,
   conversationMode,
   realtimeReadiness,
+  t,
 }: {
   isListening: boolean;
   isProcessing: boolean;
   isSpeaking: boolean;
   conversationMode: ConversationMode;
   realtimeReadiness: "idle" | "preparing-microphone" | "connecting" | "ready" | "microphone-error" | "error";
+  t: (key: UiStringKey) => string;
 }): string {
-  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "preparing-microphone") return "Подготовка микрофона…";
-  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "connecting") return "Подключаюсь…";
-  if (isProcessing) return "Думаю";
+  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "preparing-microphone") return t("overlay.preparingMic");
+  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "connecting") return t("overlay.connecting");
+  if (isProcessing) return t("overlay.thinking");
   if (isSpeaking) return "LOOI";
-  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "ready" && isListening) return "Готов · слушаю";
-  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "microphone-error") return "Микрофон не готов";
-  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "error") return "Нет связи";
-  if (isListening) return "Слушаю";
-  return "Диалог";
+  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "ready" && isListening) return t("overlay.readyListening");
+  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "microphone-error") return t("overlay.micNotReady");
+  if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "error") return t("overlay.noConnection");
+  if (isListening) return t("overlay.listening");
+  return t("overlay.conversation");
 }
 
 function getFallbackAssistantText({
@@ -110,28 +117,30 @@ function getFallbackAssistantText({
   isProcessing,
   conversationMode,
   realtimeReadiness,
+  t,
 }: {
   isListening: boolean;
   isProcessing: boolean;
   conversationMode: ConversationMode;
   realtimeReadiness: "idle" | "preparing-microphone" | "connecting" | "ready" | "microphone-error" | "error";
+  t: (key: UiStringKey) => string;
 }): string {
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "preparing-microphone") {
-    return "Подготавливаю микрофон… Говори только после «Готов · слушаю».";
+    return t("overlay.prepareHelp");
   }
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "connecting") {
-    return "Подключаю Realtime… Подожди, пока появится «Готов · слушаю».";
+    return t("overlay.connectHelp");
   }
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "microphone-error") {
-    return "Микрофон не подготовился. Коснись меня, чтобы попробовать снова.";
+    return t("overlay.micRetry");
   }
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "error") {
-    return "Realtime не подключился. Коснись меня, чтобы попробовать снова.";
+    return t("overlay.connectionRetry");
   }
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "idle") {
-    return "Коснись меня, чтобы начать Realtime.";
+    return t("overlay.tapToStart");
   }
-  if (isListening) return isRealtimeConversationMode(conversationMode) ? "Готов. Говори, я слушаю." : "Говори, я слушаю.";
+  if (isListening) return t("overlay.speakNow");
   if (isProcessing) return "…";
   return "";
 }

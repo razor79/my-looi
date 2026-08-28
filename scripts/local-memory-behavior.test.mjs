@@ -64,7 +64,9 @@ assert.ok(realtimeSource.includes('mirrorSessionMessage(this.sessionId, { role: 
 const settingsSource = fs.readFileSync("app/(tabs)/settings.tsx", "utf8");
 assert.equal(settingsSource.includes("Скопировать server memory → Local SQLite"), false);
 assert.equal(settingsSource.includes("Вернуться на Server legacy"), false);
-assert.ok(settingsSource.includes("local-first"));
+assert.ok(settingsSource.includes('t("settings.localFirst")'));
+const uiStringsSource = fs.readFileSync("src/i18n/ui-strings.ts", "utf8");
+assert.ok(uiStringsSource.includes('"settings.localFirst": "local-first"'));
 
 
 console.log("Local memory 2.x behavior: PASS");
