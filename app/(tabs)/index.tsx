@@ -383,15 +383,10 @@ export default function IndexScreen() {
           labelVisible={false}
           onPress={() => {
                     if (robotSleeping) {
-              const now = Date.now();
-              if (now - sleepTapAtRef.current <= 1200) {
-                sleepTapAtRef.current = 0;
-                void wakeRobotFromFace().catch((error) => {
-                  console.warn("[Home] Failed to wake LOOI from face tap:", error);
-                });
-              } else {
-                sleepTapAtRef.current = now;
-              }
+              sleepTapAtRef.current = 0;
+              void wakeRobotFromFace().catch((error) => {
+                console.warn("[Home] Failed to wake LOOI from face tap:", error);
+              });
               return;
             }
             handleAwakeFaceTap();

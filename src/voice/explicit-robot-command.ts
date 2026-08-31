@@ -1,3 +1,4 @@
+import type { CustomVoiceCommandAction, CustomVoiceCommandMap, CustomVoiceCommandPhrase, VoiceCommandLanguage } from "../store/user";
 export type ExplicitRobotCommand =
   | { kind: "move"; direction: "forward" | "backward" | "stop" }
   | { kind: "turn"; direction: "left" | "right"; degrees: 90 | 180 }
@@ -5,11 +6,38 @@ export type ExplicitRobotCommand =
   | { kind: "dance" }
   | { kind: "gesture"; gesture: "nod"; count: number };
 
+export type ExplicitRobotCommandConfig = {
+  robotName?: string;
+  robotAddressAliases?: readonly string[];
+  robotAddressRecognitionAliases?: readonly string[];
+  listeningLanguage?: VoiceCommandLanguage;
+  customVoiceCommands?: CustomVoiceCommandMap;
+};
+
 // Narrow STT recovery aliases are accepted only in the address position and
 // still require the remainder to parse as a deterministic physical command.
-const PREFIX_RE = /^\s*((?:луи|луй|луни|луї|луі|лу\s*[,.;:\-–—]?\s*и)|looi|макс|max|робот|robot|уи|уй|рога)\s*[,!:\-–—]?\s+(.+)$/i;
-export function hasExplicitRobotAddress(text: string): boolean {
-  return PREFIX_RE.test(text.trim());
+const BUILTIN_ADDRESS_ALIASES = ["луи", "луй", "луни", "луї", "луі", "лу и", "looi", "макс", "max", "робот", "robot", "уи", "уй", "рога"];
+
+function normalizeMatchText(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/ё/g, "е").replace(/[’'`]/g, "").replace(/[^a-zа-яіїєґ0-9\s]/giu, " ").replace(/\s+/g, " ").trim();
+}
+
+function configuredAddresses(config?: ExplicitRobotCommandConfig): string[] {
+  return [config?.robotName ?? "Луи", ...(config?.robotAddressAliases ?? []), ...(config?.robotAddressRecognitionAliases ?? []), ...BUILTIN_ADDRESS_ALIASES]
+    .map(normalizeMatchText).filter(Boolean).sort((a, b) => b.length - a.length);
+}
+
+function splitAddressedCommand(text: string, config?: ExplicitRobotCommandConfig): { address: string; command: string } | null {
+  const normalized = normalizeMatchText(normalizeKnownGluedRobotAddress(text));
+  for (const address of configuredAddresses(config)) {
+    if (normalized === address) return null;
+    if (normalized.startsWith(`${address} `)) return { address, command: normalized.slice(address.length).trim() };
+  }
+  return null;
+}
+
+export function hasExplicitRobotAddress(text: string, config?: ExplicitRobotCommandConfig): boolean {
+  return splitAddressedCommand(text, config) !== null;
 }
 
 const MOVE_VERB_RE = /(?:^|\s)(?:едь|езжай|поедь|проедь|двигайся|двинься|повернись|поверни|їдь|поїдь|рухайся|повернись|поверни|go|drive|move|turn)(?=$|[\s.,!?])/iu;
@@ -18,9 +46,50 @@ function isBareDirectionCommand(command: string, variants: string): boolean {
   return new RegExp(`^(?:${variants})(?:\\s+(?:пожалуйста|немного|чуть(?:-чуть)?))?[.!?]*$`, "i").test(command.trim());
 }
 
-/** Standalone STOP is an absolute safety keyword and never requires an address. */
-export function containsEmergencyStopWord(text: string): boolean {
-  return /(?:^|[^a-zа-яіїєґ])(?:стоп|stop)(?=$|[^a-zа-яіїєґ])/iu.test(text);
+/** Standalone built-in STOP is an absolute safety keyword and never requires an address. */
+export function containsEmergencyStopWord(text: string, config?: ExplicitRobotCommandConfig): boolean {
+  const normalized = normalizeMatchText(text);
+  if (/(?:^|\s)(?:стоп|stop)(?=$|\s)/iu.test(normalized)) return true;
+  const listeningLanguage = config?.listeningLanguage ?? "ru";
+  return (config?.customVoiceCommands?.emergency_stop ?? []).some((phrase) => phrase.language === listeningLanguage && phraseMatches(normalized, phrase));
+}
+
+function phraseMatches(normalizedCommand: string, phrase: CustomVoiceCommandPhrase): boolean {
+  return normalizedCommand === normalizeMatchText(phrase.text);
+}
+
+function customActionFor(command: string, config?: ExplicitRobotCommandConfig): CustomVoiceCommandAction | null {
+  const listeningLanguage = config?.listeningLanguage ?? "ru";
+  const entries = Object.entries(config?.customVoiceCommands ?? {}) as Array<[CustomVoiceCommandAction, CustomVoiceCommandPhrase[]]>;
+
+  // Prefer the phrase language matching the active Listening language. This is
+  // the normal path and keeps multilingual aliases predictable.
+  for (const [action, phrases] of entries) {
+    if (action === "emergency_stop") continue;
+    if (phrases.some((phrase) => phrase.language === listeningLanguage && phraseMatches(command, phrase))) return action;
+  }
+
+  // If the listening language changed after the user created a phrase, an exact
+  // addressed custom phrase should still work when it maps unambiguously to one
+  // action. Never guess when the same text is configured for different actions.
+  const matchingActions = entries
+    .filter(([action, phrases]) => action !== "emergency_stop" && phrases.some((phrase) => phraseMatches(command, phrase)))
+    .map(([action]) => action);
+  return new Set(matchingActions).size === 1 ? matchingActions[0] ?? null : null;
+}
+
+function commandFromCustomAction(action: CustomVoiceCommandAction, command: string): ExplicitRobotCommand | null {
+  switch (action) {
+    case "forward": return { kind: "move", direction: "forward" };
+    case "backward": return { kind: "move", direction: "backward" };
+    case "left": return { kind: "turn", direction: "left", degrees: 90 };
+    case "right": return { kind: "turn", direction: "right", degrees: 90 };
+    case "turn_around": return { kind: "turn", direction: "right", degrees: 180 };
+    case "nod": return { kind: "gesture", gesture: "nod", count: parseRequestedNodCount(command) };
+    case "dance": return { kind: "dance" };
+    case "sleep": return { kind: "sleep" };
+    default: return null;
+  }
 }
 
 /**
@@ -53,13 +122,15 @@ function stripNaturalCommandLeadIns(command: string): string {
   return value;
 }
 
-export function parseExplicitRobotCommand(text: string): ExplicitRobotCommand | null {
-  const match = PREFIX_RE.exec(normalizeKnownGluedRobotAddress(text));
-  if (!match) return null;
+export function parseExplicitRobotCommand(text: string, config?: ExplicitRobotCommandConfig): ExplicitRobotCommand | null {
+  const addressed = splitAddressedCommand(text, config);
+  if (!addressed) return null;
 
-  const command = stripNaturalCommandLeadIns(match[2].trim().toLowerCase());
+  const command = stripNaturalCommandLeadIns(addressed.command.trim().toLowerCase());
+  const customAction = customActionFor(command, config);
+  if (customAction) return commandFromCustomAction(customAction, command);
 
-  if (/(?:^|\s)(?:спи|засни|засыпай|иди\s+спать|ложись\s+спать|засинай|іди\s+спати|sleep|go\s+to\s+sleep|fall\s+asleep)(?=$|[\s.,!?])/iu.test(command)) {
+  if (/(?:^|\s)(?:спи|спать|засни|засыпай|иди\s+спать|ложись\s+спать|засинай|спати|іди\s+спати|sleep|go\s+to\s+sleep|fall\s+asleep)(?=$|[\s.,!?])/iu.test(command)) {
     return { kind: "sleep" };
   }
 

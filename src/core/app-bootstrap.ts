@@ -16,6 +16,8 @@ import {
 } from "../device-tools/looi-robot-autoconnect";
 import { removeRetiredExperimentalVoiceAssets } from "../voice/retired-experimental-voice-assets";
 import { retireLegacyNetworkCredentials } from "./legacy-network-credentials-retirement";
+import { startAmbientMotionController, stopAmbientMotionController } from "./ambient-motion";
+import { startSocialAttentionController, stopSocialAttentionController } from "./social-attention";
 
 let bootstrapped = false;
 let paused = false;
@@ -42,8 +44,9 @@ export async function bootstrapApp(): Promise<void> {
     });
   });
 
-  // Voice is the only active perceiver. Camera and calendar/reminder pipelines
-  // stay disabled until rebuilt as explicit local-first features.
+  // Voice remains the only general perceiver. Camera attention is a separate,
+  // opt-in local-only social controller that activates only during interaction;
+  // calendar/reminder pipelines remain disabled.
   perceiverManager.register(voiceRuntime);
 
   void retireLegacyNetworkCredentials().catch((error) => {
@@ -70,6 +73,8 @@ export async function bootstrapApp(): Promise<void> {
     }
 
     await startRuntimePerceivers();
+    startAmbientMotionController("bootstrap");
+    startSocialAttentionController("bootstrap");
 
     // Prewarm STT model so first wakeword doesn't pay 1.2s cold-start penalty.
     prewarmOfflineStt();
@@ -91,6 +96,8 @@ export async function pauseAppRuntime(reason: "background" | "sleep" = "backgrou
   return enqueueRuntimeLifecycle(async () => {
     if (desiredForegroundActive || paused) return;
     paused = true;
+    stopAmbientMotionController(reason);
+    await stopSocialAttentionController(reason);
 
     recordDiagnosticEvent("app", reason === "sleep" ? "sleep-runtime-pause-start" : "background-entered");
     const sttModule = getLoadedSttModule();
@@ -160,6 +167,8 @@ export async function resumeAppRuntime(): Promise<void> {
     paused = false;
 
     await startRuntimePerceivers();
+    startAmbientMotionController("foreground-resume");
+    startSocialAttentionController("foreground-resume");
 
     // Do not make voice readiness wait on BLE. Reconnect the saved robot in
     // parallel once the app is definitely foreground-active again.

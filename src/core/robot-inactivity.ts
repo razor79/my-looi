@@ -1,5 +1,7 @@
 import { recordDiagnosticEvent } from "../diagnostics/diagnostic-log";
 import { useUserStore } from "../store/user";
+import { noteAmbientMotionInteraction } from "./ambient-motion";
+import { noteSocialAttentionInteraction } from "./social-attention";
 
 export const ROBOT_AUTO_SLEEP_MS = 15 * 60 * 1000;
 
@@ -19,7 +21,11 @@ export function stopRobotInactivityTimer(): void {
   timer = null;
 }
 
-export function markRobotInteraction(_source: string): void {
+export function markRobotInteraction(source: string): void {
+  noteAmbientMotionInteraction(source);
+  if (source.startsWith("voice-") || source.startsWith("realtime-pcm-")) {
+    noteSocialAttentionInteraction(source);
+  }
   if (useUserStore.getState().robotSleeping) return;
   lastInteractionAt = Date.now();
   if (started) schedule();

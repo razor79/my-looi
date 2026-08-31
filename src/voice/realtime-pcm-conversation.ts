@@ -2,6 +2,7 @@ import { AppState, Platform } from "react-native";
 import { setIsAudioActiveAsync } from "expo-audio";
 
 import { createObservation } from "../core/observation";
+import { markRobotInteraction } from "../core/robot-inactivity";
 import { recordDiagnosticEvent } from "../diagnostics/diagnostic-log";
 import { localMemoryDatabase } from "../memory/local-memory-database";
 import { mirrorSessionMessage, mirrorSessionTouch, retrieveConversationMemories } from "../memory/memory-service";
@@ -23,11 +24,13 @@ import {
 } from "../../modules/local-realtime-audio-capture/realtime-pcm";
 import { kwsAudioFeeder } from "./kws-audio-feeder";
 import {
+  applyRealtimeUplinkGain,
   base64ToBytes,
   buildRealtimeSessionUpdate,
   bytesToBase64,
   floatSamplesToPcm16Bytes,
   REALTIME_MODEL,
+  REALTIME_UPLINK_GAIN,
   resample16kTo24k,
 } from "./realtime-config";
 import { wakewordService, type WakewordDetection } from "./wakeword";
@@ -41,6 +44,7 @@ const WS_OPEN_TIMEOUT_MS = 9_000;
 const CAPTURE_RELEASE_SETTLE_MS = 220;
 const COMMUNICATION_ROUTE_SETTLE_MS = 200;
 const STARTUP_PREROLL_RECENT_MS = 900;
+const UPLINK_LEVEL_WINDOW_MS = 500;
 
 type RealtimeEvent = Record<string, any> & { type?: string };
 type Subscription = { remove: () => void };
@@ -90,6 +94,12 @@ export class RealtimePcmConversationService {
   private pendingPreroll: { samples: number[]; sampleRate: number } | null = null;
   private speakerRouteActive = false;
   private lastCaptureRmsLogAt = 0;
+  private captureLevelWindowFrames = 0;
+  private captureLevelWindowEnergy = 0;
+  private captureLevelWindowMaxRms = 0;
+  private captureLevelWindowChunks = 0;
+  private captureLevelWindowGainClippedSamples = 0;
+  private captureLevelWindowFirstSequence: number | null = null;
   private sessionMemoryContext: string | undefined;
   private sessionModel = REALTIME_MODEL;
 
@@ -117,10 +127,17 @@ export class RealtimePcmConversationService {
     this.toolCallsInFlight = 0;
     this.localPhysicalCommandInFlight = false;
     this.lastCaptureRmsLogAt = 0;
+    this.captureLevelWindowFrames = 0;
+    this.captureLevelWindowEnergy = 0;
+    this.captureLevelWindowMaxRms = 0;
+    this.captureLevelWindowChunks = 0;
+    this.captureLevelWindowGainClippedSamples = 0;
+    this.captureLevelWindowFirstSequence = null;
     this.sessionModel = useUserStore.getState().preferences.realtimeModelId;
 
     const store = useConversationStore.getState();
     store.setListening(true);
+    store.setUserSpeaking(false);
     store.setProcessing(false);
     store.setSpeaking(false);
     store.setCurrentTranscript("");
@@ -263,7 +280,9 @@ export class RealtimePcmConversationService {
     const store = useConversationStore.getState();
     store.setSpeaking(false);
     store.setProcessing(false);
+    store.setUserSpeaking(false);
     store.setListening(true);
+    store.setUserSpeaking(false);
     store.setStreamingText("");
     useUserStore.getState().setVoiceState("listening");
     recordDiagnosticEvent("realtime", "pcm-interaction-interrupt", {
@@ -329,6 +348,7 @@ export class RealtimePcmConversationService {
 
     const store = useConversationStore.getState();
     store.setListening(false);
+    store.setUserSpeaking(false);
     store.setProcessing(false);
     store.setSpeaking(false);
     store.setRealtimeReadiness("idle");
@@ -379,20 +399,53 @@ export class RealtimePcmConversationService {
   private handleCapturedAudio(event: RealtimePcmAudioDataEvent): void {
     if (!this.active || !this.configured || event.sampleRate !== 16_000 || !event.pcm16Base64) return;
     const samples = pcm16Base64ToFloatSamples(event.pcm16Base64);
-    const resampled = resample16kTo24k(samples);
+    let gainClippedSamples = 0;
+    for (const sample of samples) {
+      if (Math.abs(sample) * REALTIME_UPLINK_GAIN > 1) gainClippedSamples += 1;
+    }
+    const gainedSamples = applyRealtimeUplinkGain(samples);
+    const resampled = resample16kTo24k(gainedSamples);
     const audio = bytesToBase64(floatSamplesToPcm16Bytes(resampled));
     this.send({ type: "input_audio_buffer.append", audio });
 
+    const frames = Number.isFinite(event.frames) && event.frames > 0 ? event.frames : 0;
+    const rms = Number.isFinite(event.rms) && event.rms >= 0 ? event.rms : 0;
+    if (this.captureLevelWindowFirstSequence === null) this.captureLevelWindowFirstSequence = event.sequence;
+    this.captureLevelWindowFrames += frames;
+    this.captureLevelWindowEnergy += rms * rms * frames;
+    this.captureLevelWindowMaxRms = Math.max(this.captureLevelWindowMaxRms, rms);
+    this.captureLevelWindowChunks += 1;
+    this.captureLevelWindowGainClippedSamples += gainClippedSamples;
+
     const now = Date.now();
-    if (now - this.lastCaptureRmsLogAt >= 1_000) {
-      this.lastCaptureRmsLogAt = now;
+    if (this.lastCaptureRmsLogAt === 0) this.lastCaptureRmsLogAt = now;
+    if (now - this.lastCaptureRmsLogAt >= UPLINK_LEVEL_WINDOW_MS) {
+      const windowFrames = this.captureLevelWindowFrames;
+      const windowRms = windowFrames > 0
+        ? Math.sqrt(this.captureLevelWindowEnergy / windowFrames)
+        : 0;
       recordDiagnosticEvent("realtime", "pcm-uplink-level", {
-        rms: event.rms,
+        rms,
+        windowRms,
+        maxChunkRms: this.captureLevelWindowMaxRms,
+        uplinkGain: REALTIME_UPLINK_GAIN,
+        gainClippedSamples: this.captureLevelWindowGainClippedSamples,
+        windowMs: now - this.lastCaptureRmsLogAt,
+        chunks: this.captureLevelWindowChunks,
         sourceRate: event.sampleRate,
         sourceFrames: event.frames,
+        windowFrames,
         openAiRate: 24_000,
+        firstSequence: this.captureLevelWindowFirstSequence,
         sequence: event.sequence,
       });
+      this.lastCaptureRmsLogAt = now;
+      this.captureLevelWindowFrames = 0;
+      this.captureLevelWindowEnergy = 0;
+      this.captureLevelWindowMaxRms = 0;
+      this.captureLevelWindowChunks = 0;
+      this.captureLevelWindowGainClippedSamples = 0;
+      this.captureLevelWindowFirstSequence = null;
     }
   }
 
@@ -482,10 +535,12 @@ export class RealtimePcmConversationService {
       const preroll = this.pendingPreroll;
       this.pendingPreroll = null;
       if (preroll && preroll.sampleRate === 16_000 && preroll.samples.length > 0) {
-        const resampled = resample16kTo24k(preroll.samples);
+        const gainedPreroll = applyRealtimeUplinkGain(preroll.samples);
+        const resampled = resample16kTo24k(gainedPreroll);
         this.send({ type: "input_audio_buffer.append", audio: bytesToBase64(floatSamplesToPcm16Bytes(resampled)) });
         recordDiagnosticEvent("realtime", "pcm-startup-preroll-seeded", {
           durationMs: Math.round((preroll.samples.length / preroll.sampleRate) * 1000),
+          uplinkGain: REALTIME_UPLINK_GAIN,
         });
       }
       useConversationStore.getState().setRealtimeReadiness("ready");
@@ -565,6 +620,7 @@ export class RealtimePcmConversationService {
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
+      markRobotInteraction("realtime-pcm-speech-start");
       const duringOutput = this.playbackActive;
       if (duringOutput) {
         this.playbackInterrupted = true;
@@ -580,12 +636,14 @@ export class RealtimePcmConversationService {
       store.setSpeaking(false);
       store.setProcessing(false);
       store.setListening(true);
+      store.setUserSpeaking(true);
       useUserStore.getState().setVoiceState("listening");
       recordDiagnosticEvent("realtime", "pcm-speech-started", { duringOutput });
       return;
     }
     if (type === "input_audio_buffer.speech_stopped") {
       const store = useConversationStore.getState();
+      store.setUserSpeaking(false);
       store.setListening(false);
       store.setProcessing(true);
       useUserStore.getState().setVoiceState("processing");
@@ -596,6 +654,7 @@ export class RealtimePcmConversationService {
       const transcript = String(event.transcript ?? "").trim();
       const itemId = String(event.item_id ?? `unknown-${Date.now()}`);
       if (transcript && !this.userTranscriptItems.has(itemId)) {
+        markRobotInteraction("realtime-pcm-transcript");
         this.userTranscriptItems.add(itemId);
         const store = useConversationStore.getState();
         store.setCurrentTranscript(transcript);
@@ -606,7 +665,7 @@ export class RealtimePcmConversationService {
           recognizedText: transcript,
         });
 
-        const physicalCommand = parseRealtimePhysicalCommand(transcript);
+        const physicalCommand = parseRealtimePhysicalCommand(transcript, useUserStore.getState().preferences);
         if (physicalCommand) {
           this.localPhysicalCommandInFlight = true;
           if (this.playbackActive) {
@@ -656,6 +715,7 @@ export class RealtimePcmConversationService {
     this.assistantContentIndex = 0;
     store.setSpeaking(false);
     store.setProcessing(false);
+    store.setUserSpeaking(false);
     store.setListening(this.active);
     useUserStore.getState().setVoiceState(this.active ? "listening" : "sleeping");
     recordDiagnosticEvent("realtime", "pcm-local-physical-command-finished", {
@@ -668,6 +728,7 @@ export class RealtimePcmConversationService {
   private markPlaybackStarted(): void {
     this.playbackActive = true;
     const store = useConversationStore.getState();
+    store.setUserSpeaking(false);
     store.setListening(false);
     store.setProcessing(false);
     store.setSpeaking(true);

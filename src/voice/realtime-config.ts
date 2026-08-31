@@ -4,6 +4,7 @@ import { DEFAULT_REALTIME_MODEL_ID, normalizeRealtimeModelId, supportsRealtimeRe
 export const REALTIME_MODEL = DEFAULT_REALTIME_MODEL_ID;
 export const REALTIME_PCM_RATE = 24_000;
 export const REALTIME_SOURCE_PCM_RATE = 16_000;
+export const REALTIME_UPLINK_GAIN = 2.0;
 
 const REALTIME_VOICES = new Set([
   "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar",
@@ -14,7 +15,7 @@ export function resolveRealtimeVoice(ttsVoiceId: string): string {
 }
 
 export function buildRealtimeInstructions(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): string {
@@ -24,6 +25,9 @@ export function buildRealtimeInstructions(
   const inputLanguage = preferences.listeningLanguage === "uk"
     ? "Ukrainian"
     : preferences.listeningLanguage === "en" ? "English" : "Russian";
+  const robotName = preferences.robotName?.trim() || "Луи";
+  const robotAliases = Array.isArray(preferences.robotAddressAliases) ? preferences.robotAddressAliases : ["LOOI", "Луї", "Робот", "Robot"];
+  const recognitionAliases = Array.isArray(preferences.robotAddressRecognitionAliases) ? preferences.robotAddressRecognitionAliases : [];
   const summary = previousSummary?.trim()
     ? `\nPrevious conversation summary:\n${previousSummary.trim()}`
     : "";
@@ -33,7 +37,7 @@ export function buildRealtimeInstructions(
 
   return [
     "You are LOOI, a small physical conversational robot with long-term memory.",
-    "Макс / Max is an accepted nickname and direct form of address for you, the same LOOI robot. Respond normally when called Макс or Max and never argue that you are only LOOI.",
+    `Your current primary spoken name is ${robotName}. Normal direct-address aliases include ${robotAliases.join(", ") || "LOOI"}. Speech-recognition aliases may also include ${recognitionAliases.join(", ") || "none"}. Макс / Max remains an accepted nickname for backward compatibility. Every one of these names or recognition variants refers to YOU, the robot, never to the human user. Treat vocatives such as “Спасибо, Луи”, “Луи, как дела?”, “Привет, Бобик”, “Бобик, как твои дела?”, “Макс, ты меня слышишь?” and equivalent forms as the human addressing YOU. Never address the human as Луи, LOOI, Луї, Бобик, Макс, Max, Робот, Robot, ${robotName}, or any configured/recognition robot alias. Never invent a human personal name from an address token. Use a personal name for the human only when that human name is explicitly and reliably known from memory or conversation context. If the user addresses you with any accepted alias or recognition variant, accept it naturally. Do not correct them back to ${robotName}, do not say “I am ${robotName}” merely because another alias was used, and never infer that an alias is the user's name. Only discuss your primary name if the user explicitly asks about your name or naming.`,
     "The user is speaking by voice. Be lively, warm, curious, concise, and natural.",
     `The app response-language setting is the default language for normal replies: ${responseLanguage}. Do not change the persistent language merely because the user happens to speak another language.`,
     `The expected input/listening language is ${inputLanguage}. Interpret ambiguous speech as ${inputLanguage}.`,
@@ -101,7 +105,7 @@ function buildRealtimeTools(): Record<string, unknown>[] {
 }
 
 function buildRealtimeSessionBase(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {
@@ -119,7 +123,7 @@ function buildRealtimeSessionBase(
 }
 
 export function buildRealtimeSessionUpdate(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {
@@ -134,15 +138,14 @@ export function buildRealtimeSessionUpdate(
           transcription: {
             model: "gpt-4o-mini-transcribe",
             language: preferences.listeningLanguage,
-            prompt: `The user is speaking ${preferences.listeningLanguage === "uk" ? "Ukrainian" : preferences.listeningLanguage === "en" ? "English" : "Russian"}. Expect the robot names LOOI, Луи, Луї, Макс, and Max.`,
+            prompt: `The user is speaking ${preferences.listeningLanguage === "uk" ? "Ukrainian" : preferences.listeningLanguage === "en" ? "English" : "Russian"}. Robot names/addresses and likely STT variants may include ${[preferences.robotName?.trim() || "Луи", ...(Array.isArray(preferences.robotAddressAliases) ? preferences.robotAddressAliases : []), ...(Array.isArray(preferences.robotAddressRecognitionAliases) ? preferences.robotAddressRecognitionAliases : []), "LOOI", "Луи", "Луї", "Бобик", "Макс", "Max", "Робот", "Robot"].join(", ")}. These tokens are vocative robot addresses, not evidence of the human user's name. Transcribe them as robot names/addresses and do not reinterpret them as the user's personal name.`,
           },
           turn_detection: {
             type: "server_vad",
-            // Mi MIX 2S native WebRTC capture can be substantially quieter
-            // than Classic AudioRecord even while RTP is healthy. A lower
-            // server-VAD threshold makes speech activation robust without
-            // changing the WebRTC media path or Classic audio.
-            threshold: 0.20,
+            // v2.1.135 showed that a very aggressive 0.10 threshold still did
+            // not solve far-field recognition. Return to the more conservative
+            // v2.1.134 value while testing post-AEC uplink gain separately.
+            threshold: 0.15,
             prefix_padding_ms: 500,
             silence_duration_ms: 1000,
             create_response: true,
@@ -160,6 +163,22 @@ export function buildRealtimeSessionUpdate(
       },
     },
   };
+}
+
+
+/**
+ * Conservative digital gain applied only to the app-owned Realtime uplink after
+ * Android VOICE_COMMUNICATION/AEC capture. Local wake/STT and the native capture
+ * profile remain untouched. Hard clamp prevents PCM16 overflow.
+ */
+export function applyRealtimeUplinkGain(samples: readonly number[], gain = REALTIME_UPLINK_GAIN): number[] {
+  const safeGain = Number.isFinite(gain) && gain > 0 ? gain : 1;
+  const output = new Array<number>(samples.length);
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = (Number(samples[i]) || 0) * safeGain;
+    output[i] = Math.max(-1, Math.min(1, sample));
+  }
+  return output;
 }
 
 /** Linear resampler used only for the 16kHz shared LOOI feeder -> 24kHz Realtime PCM. */

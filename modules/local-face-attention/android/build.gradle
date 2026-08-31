@@ -1,0 +1,23 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.localfaceattention'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace 'com.superlooi.localfaceattention'
+
+  defaultConfig {
+    minSdkVersion 24
+  }
+}
+
+dependencies {
+  // Bundled ML Kit face detector: inference is on-device and does not require
+  // downloading a model from Google Play Services at runtime.
+  implementation 'com.google.mlkit:face-detection:16.1.7'
+}

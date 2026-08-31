@@ -1224,14 +1224,21 @@ export class VoicePerceiver extends BasePerceiver {
       // address at the start of the recognized utterance. Parse the raw STT text
       // before wakeword stripping so "Луи, спи" remains distinguishable from
       // ordinary conversational text such as "спи".
-      const explicitRobotCommand = parseExplicitRobotCommand(rawTranscript);
+      const explicitCommandConfig = {
+        robotName: userStore.preferences.robotName,
+        robotAddressAliases: userStore.preferences.robotAddressAliases,
+        robotAddressRecognitionAliases: userStore.preferences.robotAddressRecognitionAliases,
+        listeningLanguage: userStore.preferences.listeningLanguage,
+        customVoiceCommands: userStore.preferences.customVoiceCommands,
+      };
+      const explicitRobotCommand = parseExplicitRobotCommand(rawTranscript, explicitCommandConfig);
       const requestedListeningLanguage = detectListeningLanguageSwitchCommand(transcript);
       const requestedResponseLanguage = detectLanguageSwitchCommand(transcript);
       if (
         !explicitRobotCommand &&
         !requestedListeningLanguage &&
         !requestedResponseLanguage &&
-        hasExplicitRobotAddress(rawTranscript)
+        hasExplicitRobotAddress(rawTranscript, explicitCommandConfig)
       ) {
         recordDiagnosticEvent("robot", "explicit-voice-command-unmatched", {
           transcriptLength: rawTranscript.length,
@@ -1275,7 +1282,7 @@ export class VoicePerceiver extends BasePerceiver {
       // Absolute safety rule: the standalone word STOP never requires a robot
       // address and never reaches the LLM. False positives are preferable to a
       // delayed physical stop. Native KWS provides an even earlier parallel path.
-      if (containsEmergencyStopWord(rawTranscript)) {
+      if (containsEmergencyStopWord(rawTranscript, explicitCommandConfig)) {
         const stopStartedAt = Date.now();
         await stopLooiMotion("voice-emergency-transcript");
         const responseLanguage = useUserStore.getState().preferences.language;

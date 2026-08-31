@@ -16,6 +16,8 @@ interface ConversationState {
   messages: ChatMessage[];
   isProcessing: boolean;
   isListening: boolean;
+  /** True only while server VAD says the human is actively speaking. */
+  isUserSpeaking: boolean;
   isSpeaking: boolean;
   realtimeReadiness: RealtimeReadiness;
   currentTranscript: string;
@@ -29,6 +31,7 @@ interface ConversationState {
   appendMessage: (message: NewChatMessage) => Promise<ChatMessage>;
   setProcessing: (processing: boolean) => void;
   setListening: (listening: boolean) => void;
+  setUserSpeaking: (speaking: boolean) => void;
   setSpeaking: (speaking: boolean) => void;
   setRealtimeReadiness: (readiness: RealtimeReadiness) => void;
   setCurrentTranscript: (transcript: string) => void;
@@ -54,6 +57,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   messages: [],
   isProcessing: false,
   isListening: false,
+  isUserSpeaking: false,
   isSpeaking: false,
   realtimeReadiness: "idle",
   currentTranscript: "",
@@ -100,6 +104,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       isListening,
       overlayVisible: isListening ? true : state.overlayVisible,
     })),
+  setUserSpeaking: (isUserSpeaking) => set({ isUserSpeaking }),
   setSpeaking: (isSpeaking) =>
     set((state) => ({
       isSpeaking,
@@ -132,6 +137,10 @@ export const useConversationStore = create<ConversationState>((set) => ({
       currentTranscript: "",
       streamingText: "",
       realtimeReadiness: "idle",
+      isProcessing: false,
+      isListening: false,
+      isUserSpeaking: false,
+      isSpeaking: false,
       overlayVisible: false,
       imageOverlayUri: null,
     }),

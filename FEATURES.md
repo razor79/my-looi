@@ -7,7 +7,7 @@
 - Direct OpenAI Realtime WebSocket conversation path.
 - App-owned 24 kHz PCM playback through Android `AudioTrack`.
 - Natural barge-in with playback stop and accurate conversation truncation.
-- Server VAD for conversational turn detection.
+- Server VAD for conversational turn detection, with a conservative Realtime-only post-AEC uplink gain stage for far-field A/B testing.
 - Advanced WebRTC fallback retained for A/B and rollback testing.
 
 ## Languages
@@ -45,6 +45,10 @@
 - Emergency STOP command path.
 - Movement deadman protection.
 - Directional cliff-safety checks.
+- Natural motion with Off / Subtle / Normal / Lively levels. Idle motion can include tiny bounded body pivots through the existing cliff/near-edge safety controller; actual user speech and explicit commands always preempt it.
+- Optional local-only Camera Attention. During an active conversation, the front camera can briefly detect a face on-device, visibly direct the screen eyes toward it before physical correction is needed, and issue small bounded head/body recentering corrections. Camera Attention temporarily owns the head channel while a face is tracked so low-priority ambient head gestures do not fight tracking; safe ambient body motion remains independent. Camera Attention never translates toward a person.
+- Face personalization combines independent color palettes with Classic, Soft, Playful, Cap, Cowboy, Bandana and Sharp styles.
+- Custom deterministic voice phrases are edited in a collapsed-by-default Settings accordion; the existing safety parser and movement execution path are unchanged.
 
 ## Wake and local speech support
 
@@ -60,6 +64,7 @@
 - Hard sensitive-runtime suspend on background/screen-off.
 - Diagnostic export is explicit and user-triggered.
 - Microphone WAV recordings are not retained by normal diagnostics.
+- Camera Attention frames are never retained or included in diagnostics; only short-lived normalized face position is used in memory while the attention controller is active.
 - Diagnostic ZIPs can be shared manually through the Android share sheet (including Google Drive when installed) or written to a persistently selected local Android Documents/SAF folder. My LOOI does not request direct Google Drive access, and there is no automatic diagnostic upload.
 
 ## App maintenance

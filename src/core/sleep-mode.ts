@@ -21,7 +21,7 @@ export async function enterRobotSleepMode(source: "voice" | "manual" | "inactivi
   recordDiagnosticEvent("app", "sleep-mode-entered", { source });
   const { pauseAppRuntime } = await import("./app-bootstrap");
   await pauseAppRuntime("sleep");
-  return { ok: true, sleeping: true, wake: "double-tap-face" };
+  return { ok: true, sleeping: true, wake: "single-tap-face" };
 }
 
 export async function wakeRobotFromFace() {

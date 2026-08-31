@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
 import { useFocusEffect } from "expo-router";
 
 import { DeviceShell } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
-import { useUserStore, type ConversationMode } from "@/src/store/user";
+import { useUserStore, type ConversationMode, type CustomVoiceCommandAction, type FacePaletteId, type FaceStyleId, type VoiceCommandLanguage } from "@/src/store/user";
 import { voiceRuntime } from "@/src/perceivers/voice-runtime";
+import { parseRealtimePhysicalCommand } from "@/src/voice/realtime-physical-command";
 import { syncVoiceRuntime } from "@/src/core/app-bootstrap";
 import { recordDiagnosticEvent, clearDiagnosticLog, getDiagnosticLogEntries } from "@/src/diagnostics/diagnostic-log";
 import {
@@ -98,6 +99,7 @@ export default function SettingsScreen() {
   const { preferences, updatePreferences } = useUserStore();
   const { language: interfaceLanguage, t } = useUiText();
   const [advanced, setAdvanced] = useState(false);
+  const [voicesExpanded, setVoicesExpanded] = useState(false);
   const [openAiKeyConfigured, setOpenAiKeyConfigured] = useState(false);
   const [openAiKeyInput, setOpenAiKeyInput] = useState("");
   const [openAiKeyBusy, setOpenAiKeyBusy] = useState(false);
@@ -445,6 +447,23 @@ export default function SettingsScreen() {
     [realtimeModels]
   );
 
+  const setCameraAttentionEnabled = useCallback(async (enabled: boolean) => {
+    if (!enabled) {
+      updatePreferences({ cameraAttentionEnabled: false });
+      return;
+    }
+    if (Platform.OS !== "android") {
+      Alert.alert(t("settings.cameraAttentionPermissionTitle"), t("settings.cameraAttentionAndroidOnly"));
+      return;
+    }
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+    if (result === PermissionsAndroid.RESULTS.GRANTED) {
+      updatePreferences({ cameraAttentionEnabled: true });
+      return;
+    }
+    Alert.alert(t("settings.cameraAttentionPermissionTitle"), t("settings.cameraAttentionPermissionBody"));
+  }, [t, updatePreferences]);
+
   return (
     <DeviceShell title={t("settings.title")} eyebrow="MY LOOI">
       <View style={styles.summaryGrid}>
@@ -510,11 +529,17 @@ export default function SettingsScreen() {
 
       <Section title={t("settings.voice")}>
         <Text style={styles.help}>{t("settings.voiceHelp")}</Text>
-        {curatedVoices.map((voice) => <VoiceChoice key={voice.id} selected={preferences.ttsVoiceId === voice.id} label={voice.name} detail={`${getLocalizedVoiceDescription(interfaceLanguage, voice.id, voice.description)}${voice.id === "marin" || voice.id === "cedar" ? ` · ${t("settings.voiceRecommended")}` : ""}`} onSelect={() => updatePreferences({ ttsVoiceId: voice.id })} onPreview={() => void previewVoice(voice.id)} previewing={voicePreviewBusy === voice.id} previewDisabled={Boolean(voicePreviewBusy) || !openAiKeyConfigured} />)}
-        {voicePreviewResult ? <Text style={styles.result}>{voicePreviewResult}</Text> : null}
+        <DisclosureRow label={t("settings.voiceSelected", { voice: curatedVoices.find((voice) => voice.id === preferences.ttsVoiceId)?.name ?? preferences.ttsVoiceId })} expanded={voicesExpanded} onPress={() => setVoicesExpanded((value) => !value)} />
+        {voicesExpanded ? <View style={styles.disclosureBody}>
+          {curatedVoices.map((voice) => <VoiceChoice key={voice.id} selected={preferences.ttsVoiceId === voice.id} label={voice.name} detail={`${getLocalizedVoiceDescription(interfaceLanguage, voice.id, voice.description)}${voice.id === "marin" || voice.id === "cedar" ? ` · ${t("settings.voiceRecommended")}` : ""}`} onSelect={() => updatePreferences({ ttsVoiceId: voice.id })} onPreview={() => void previewVoice(voice.id)} previewing={voicePreviewBusy === voice.id} previewDisabled={Boolean(voicePreviewBusy) || !openAiKeyConfigured} />)}
+          {voicePreviewResult ? <Text style={styles.result}>{voicePreviewResult}</Text> : null}
+        </View> : null}
         <Text style={styles.label}>{t("settings.speed")}</Text>
         <ButtonRow>{TTS_SPEED_OPTIONS.map((speed) => <SmallChoice key={speed} selected={preferences.ttsSpeed === speed} label={`${speed}×`} onPress={() => updatePreferences({ ttsSpeed: speed })} />)}</ButtonRow>
       </Section>
+
+      <VoiceCommandsSettings />
+      <FaceAppearanceSettings />
 
       <Section title={t("settings.localModels")}>
         <ModelLine label={t("settings.sharedStt")} status={modelStatus?.asr} />
@@ -528,6 +553,24 @@ export default function SettingsScreen() {
       <Section title={t("settings.robot")}>
         <Text style={styles.help}>{robotUi.saved ? t("settings.robotSaved", { name: robotUi.saved.name }) : t("settings.robotNotSelected")} · BLE: {robotRuntime.connected ? "connected" : robotRuntime.connecting ? "connecting" : "offline"}</Text>
         <ButtonRow><Action label={robotUi.scanning ? t("settings.searching") : t("settings.findLooi")} onPress={scanRobot} disabled={robotUi.scanning || robotUi.busy} /><Action label={t("settings.reconnect")} onPress={() => void connectRobot()} disabled={!robotUi.saved || robotUi.busy} secondary /></ButtonRow>
+        <View style={styles.subCard}>
+          <Text style={styles.label}>{t("settings.ambientMotion")}</Text>
+          <Text style={styles.help}>{t("settings.ambientMotionHelp")}</Text>
+          <ButtonRow>
+            <SmallChoice selected={preferences.ambientMotionLevel === "off"} label={t("settings.ambientMotionOff")} onPress={() => updatePreferences({ ambientMotionLevel: "off" })} />
+            <SmallChoice selected={preferences.ambientMotionLevel === "subtle"} label={t("settings.ambientMotionSubtle")} onPress={() => updatePreferences({ ambientMotionLevel: "subtle" })} />
+            <SmallChoice selected={preferences.ambientMotionLevel === "normal"} label={t("settings.ambientMotionNormal")} onPress={() => updatePreferences({ ambientMotionLevel: "normal" })} />
+            <SmallChoice selected={preferences.ambientMotionLevel === "lively"} label={t("settings.ambientMotionLively")} onPress={() => updatePreferences({ ambientMotionLevel: "lively" })} />
+          </ButtonRow>
+        </View>
+        <View style={styles.subCard}>
+          <Text style={styles.label}>{t("settings.cameraAttention")}</Text>
+          <Text style={styles.help}>{t("settings.cameraAttentionHelp")}</Text>
+          <ButtonRow>
+            <SmallChoice selected={!preferences.cameraAttentionEnabled} label={t("common.off")} onPress={() => void setCameraAttentionEnabled(false)} />
+            <SmallChoice selected={preferences.cameraAttentionEnabled} label={t("common.on")} onPress={() => void setCameraAttentionEnabled(true)} />
+          </ButtonRow>
+        </View>
         {robotUi.candidates.map((candidate) => <Choice key={candidate.id} selected={candidate.selected} label={candidate.name} detail={`${candidate.rssi ?? "?"} dBm`} onPress={() => void connectRobot(candidate)} />)}
         {robotUi.saved ? <Action label={t("settings.forgetRobot")} onPress={forgetRobot} secondary /> : null}
         {robotUi.result ? <Text style={styles.result}>{robotUi.result}</Text> : null}
@@ -580,6 +623,216 @@ export default function SettingsScreen() {
   );
 }
 
+
+const FACE_STYLE_OPTIONS: FaceStyleId[] = ["classic", "soft", "playful", "fringe", "cowboy", "bandana", "sharp"];
+const FACE_PALETTE_OPTIONS: FacePaletteId[] = ["cyan", "rose", "lime", "amber", "violet"];
+const FACE_PALETTE_SWATCHES: Record<FacePaletteId, [string, string]> = {
+  cyan: ["#54DCF2", "#4050E8"],
+  rose: ["#FF8BD1", "#8D6BFF"],
+  lime: ["#9EF06A", "#2C9CFF"],
+  amber: ["#FFB454", "#FF5F6D"],
+  violet: ["#B99AFF", "#596BFF"],
+};
+
+function FaceAppearanceSettings() {
+  const { preferences, updatePreferences } = useUserStore();
+  const { t } = useUiText();
+  const [expanded, setExpanded] = useState(false);
+  const [openPart, setOpenPart] = useState<"style" | "palette" | null>(null);
+  const selectedStyle = t(`settings.faceStyle.${preferences.faceStyle}` as any);
+  const selectedPalette = t(`settings.facePalette.${preferences.facePalette}` as any);
+
+  return <Section title={t("settings.appearance")}>
+    <Text style={styles.help}>{t("settings.appearanceHelp")}</Text>
+    <DisclosureRow
+      label={t("settings.faceAppearanceSelected", { style: selectedStyle, palette: selectedPalette })}
+      expanded={expanded}
+      onPress={() => { setExpanded((value) => !value); setOpenPart(null); }}
+    />
+    {expanded ? <View style={styles.disclosureBody}>
+      <DisclosureRow
+        label={t("settings.faceStyleSelected", { style: selectedStyle })}
+        expanded={openPart === "style"}
+        onPress={() => setOpenPart(openPart === "style" ? null : "style")}
+        compact
+      />
+      {openPart === "style" ? <View style={styles.disclosureBody}>
+        {FACE_STYLE_OPTIONS.map((style) => <Choice
+          key={style}
+          selected={preferences.faceStyle === style}
+          label={t(`settings.faceStyle.${style}` as any)}
+          detail={t(`settings.faceStyle.${style}.help` as any)}
+          onPress={() => updatePreferences({ faceStyle: style })}
+        />)}
+      </View> : null}
+
+      <DisclosureRow
+        label={t("settings.facePaletteSelected", { palette: selectedPalette })}
+        expanded={openPart === "palette"}
+        onPress={() => setOpenPart(openPart === "palette" ? null : "palette")}
+        compact
+      />
+      {openPart === "palette" ? <View style={styles.disclosureBody}>
+        {FACE_PALETTE_OPTIONS.map((palette) => <PaletteChoice
+          key={palette}
+          selected={preferences.facePalette === palette}
+          label={t(`settings.facePalette.${palette}` as any)}
+          colors={FACE_PALETTE_SWATCHES[palette]}
+          onPress={() => updatePreferences({ facePalette: palette })}
+        />)}
+      </View> : null}
+      <Text style={styles.help}>{t("settings.faceAppearancePreviewHelp")}</Text>
+    </View> : null}
+  </Section>;
+}
+
+function PaletteChoice({ selected, label, colors, onPress }: { selected: boolean; label: string; colors: [string, string]; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={[styles.choice, selected && styles.choiceSelected]}>
+    <View style={styles.paletteChoiceRow}>
+      <View style={styles.paletteSwatches}>
+        <View style={[styles.paletteSwatch, { backgroundColor: colors[0] }]} />
+        <View style={[styles.paletteSwatch, styles.paletteSwatchOverlap, { backgroundColor: colors[1] }]} />
+      </View>
+      <Text style={styles.value}>{label}</Text>
+    </View>
+  </Pressable>;
+}
+
+const VOICE_COMMAND_ACTIONS: CustomVoiceCommandAction[] = [
+  "emergency_stop", "forward", "backward", "left", "right", "turn_around", "nod", "dance", "sleep",
+];
+
+function VoiceCommandsSettings() {
+  const { preferences, updatePreferences } = useUserStore();
+  const { t } = useUiText();
+  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [draftLanguage, setDraftLanguage] = useState<VoiceCommandLanguage>(preferences.listeningLanguage);
+  const [aliasDraft, setAliasDraft] = useState("");
+  const [recognitionDraft, setRecognitionDraft] = useState("");
+  const [recognitionExpanded, setRecognitionExpanded] = useState(false);
+  const [customPhrasesExpanded, setCustomPhrasesExpanded] = useState(false);
+  const [robotNameDraft, setRobotNameDraft] = useState(preferences.robotName);
+  const [testText, setTestText] = useState("");
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const updateStringList = (key: "robotAddressAliases" | "robotAddressRecognitionAliases", next: string[]) => {
+    updatePreferences({ [key]: next } as any);
+  };
+
+  const addAddress = (recognition: boolean) => {
+    const value = (recognition ? recognitionDraft : aliasDraft).trim();
+    if (value.length < 2) return;
+    const key = recognition ? "robotAddressRecognitionAliases" : "robotAddressAliases";
+    const current = preferences[key];
+    if (!current.some((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase()) && value.toLocaleLowerCase() !== preferences.robotName.toLocaleLowerCase()) {
+      updateStringList(key, [...current, value]);
+    }
+    recognition ? setRecognitionDraft("") : setAliasDraft("");
+  };
+
+  const phraseConflict = (text: string, action: CustomVoiceCommandAction): string | null => {
+    const normalized = text.trim().toLocaleLowerCase();
+    if (normalized.length < 3) return t("settings.voiceCommandsTooShort");
+    if (["да", "нет", "ок", "okay", "yes", "no", "добре", "так"].includes(normalized)) return t("settings.voiceCommandsTooGeneric");
+    for (const [otherAction, phrases] of Object.entries(preferences.customVoiceCommands)) {
+      if (otherAction === action) continue;
+      if (phrases.some((item) => item.language === draftLanguage && item.text.trim().toLocaleLowerCase() === normalized)) {
+        return t("settings.voiceCommandsConflict", { action: t(`settings.voiceAction.${otherAction}` as any) });
+      }
+    }
+    return null;
+  };
+
+  const addPhrase = (action: CustomVoiceCommandAction) => {
+    const text = draft.trim();
+    const conflict = phraseConflict(text, action);
+    if (conflict) { Alert.alert(t("settings.voiceCommandsCannotAdd"), conflict); return; }
+    const current = preferences.customVoiceCommands[action];
+    if (current.some((item) => item.language === draftLanguage && item.text.toLocaleLowerCase() === text.toLocaleLowerCase())) return;
+    updatePreferences({ customVoiceCommands: {
+      ...preferences.customVoiceCommands,
+      [action]: [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, language: draftLanguage }],
+    }});
+    setDraft("");
+  };
+
+  const removePhrase = (action: CustomVoiceCommandAction, id: string) => {
+    updatePreferences({ customVoiceCommands: {
+      ...preferences.customVoiceCommands,
+      [action]: preferences.customVoiceCommands[action].filter((item) => item.id !== id),
+    }});
+  };
+
+  const customPhraseCount = VOICE_COMMAND_ACTIONS.reduce(
+    (count, action) => count + preferences.customVoiceCommands[action].length,
+    0
+  );
+
+  const runSafeTest = () => {
+    const parsed = parseRealtimePhysicalCommand(testText, preferences);
+    if (!parsed) { setTestResult(t("settings.voiceCommandsTestNoMatch")); return; }
+    const result = parsed.kind === "emergency-stop" ? t("settings.voiceAction.emergency_stop") : parsed.command.kind === "move"
+      ? parsed.command.direction === "forward" ? t("settings.voiceAction.forward") : parsed.command.direction === "backward" ? t("settings.voiceAction.backward") : t("settings.voiceAction.emergency_stop")
+      : parsed.command.kind === "turn" ? parsed.command.degrees === 180 ? t("settings.voiceAction.turn_around") : parsed.command.direction === "left" ? t("settings.voiceAction.left") : t("settings.voiceAction.right")
+      : parsed.command.kind === "gesture" ? t("settings.voiceAction.nod") : parsed.command.kind === "dance" ? t("settings.voiceAction.dance") : t("settings.voiceAction.sleep");
+    setTestResult(t("settings.voiceCommandsTestMatched", { action: result }));
+    recordDiagnosticEvent("runtime", "voice-command-safe-test", { matched: true, kind: parsed.kind });
+  };
+
+  return <Section title={t("settings.voiceCommands")}>
+    <Text style={styles.help}>{t("settings.voiceCommandsHelp")}</Text>
+    <DisclosureRow label={t("settings.robotNameRow", { name: preferences.robotName })} expanded={open === "name"} onPress={() => setOpen(open === "name" ? null : "name")} />
+    {open === "name" ? <View style={styles.disclosureBody}>
+      <Text style={styles.label}>{t("settings.robotPrimaryName")}</Text>
+      <View style={styles.inlineInput}><TextInput value={robotNameDraft} onChangeText={setRobotNameDraft} placeholder="LOOI" placeholderTextColor={looiTheme.muted} style={[styles.input, styles.flexInput]} /><Action label={t("common.save")} onPress={() => { const value = robotNameDraft.trim(); if (value.length >= 2) updatePreferences({ robotName: value }); }} disabled={robotNameDraft.trim().length < 2} /></View>
+      <Text style={styles.help}>{t("settings.robotNameSafetyHelp")}</Text>
+      <Text style={styles.label}>{t("settings.robotOtherAddresses")}</Text>
+      <View style={styles.tagWrap}>{preferences.robotAddressAliases.map((item) => <Pressable key={item} onPress={() => updateStringList("robotAddressAliases", preferences.robotAddressAliases.filter((value) => value !== item))} style={styles.tag}><Text style={styles.value}>{item} ×</Text></Pressable>)}</View>
+      <View style={styles.inlineInput}><TextInput value={aliasDraft} onChangeText={setAliasDraft} placeholder={t("settings.addAddress")} placeholderTextColor={looiTheme.muted} style={[styles.input, styles.flexInput]} /><Action label="+" onPress={() => addAddress(false)} disabled={aliasDraft.trim().length < 2} /></View>
+      <DisclosureRow label={t("settings.recognitionAliases")} expanded={recognitionExpanded} onPress={() => setRecognitionExpanded((value) => !value)} compact />
+      {recognitionExpanded ? <View style={styles.disclosureBody}><Text style={styles.help}>{t("settings.recognitionAliasesHelp")}</Text><View style={styles.tagWrap}>{preferences.robotAddressRecognitionAliases.map((item) => <Pressable key={item} onPress={() => updateStringList("robotAddressRecognitionAliases", preferences.robotAddressRecognitionAliases.filter((value) => value !== item))} style={styles.tag}><Text style={styles.value}>{item} ×</Text></Pressable>)}</View><View style={styles.inlineInput}><TextInput value={recognitionDraft} onChangeText={setRecognitionDraft} placeholder={t("settings.addRecognitionAlias")} placeholderTextColor={looiTheme.muted} style={[styles.input, styles.flexInput]} /><Action label="+" onPress={() => addAddress(true)} disabled={recognitionDraft.trim().length < 2} /></View></View> : null}
+    </View> : null}
+    <DisclosureRow
+      label={t("settings.customPhrasesSummary", { count: customPhraseCount })}
+      expanded={customPhrasesExpanded}
+      onPress={() => {
+        setCustomPhrasesExpanded((value) => !value);
+        setOpen(null);
+        setDraft("");
+        setTestResult(null);
+      }}
+    />
+    {customPhrasesExpanded ? <View style={styles.disclosureBody}>
+      <Text style={styles.help}>{t("settings.customPhrasesHelp")}</Text>
+      {VOICE_COMMAND_ACTIONS.map((action) => {
+        const phrases = preferences.customVoiceCommands[action];
+        const expanded = open === action;
+        return <View key={action}>
+          <DisclosureRow label={`${t(`settings.voiceAction.${action}` as any)} · ${phrases.length}`} expanded={expanded} onPress={() => { setOpen(expanded ? null : action); setDraft(""); setDraftLanguage(preferences.listeningLanguage); }} compact />
+          {expanded ? <View style={styles.disclosureBody}>
+            <Text style={styles.help}>{action === "emergency_stop" ? t("settings.voiceCommandsEmergencyHelp") : t("settings.voiceCommandsAddressRequired", { name: preferences.robotName })}</Text>
+            {phrases.map((phrase) => <View key={phrase.id} style={styles.phraseRow}><Text style={styles.value}>{phrase.text}</Text><Text style={styles.help}>{phrase.language.toUpperCase()}</Text><Pressable onPress={() => removePhrase(action, phrase.id)}><Text style={styles.deleteText}>×</Text></Pressable></View>)}
+            <TextInput value={draft} onChangeText={setDraft} placeholder={t("settings.addPhrase")} placeholderTextColor={looiTheme.muted} style={styles.input} />
+            <ButtonRow>{(["uk", "en", "ru"] as VoiceCommandLanguage[]).map((language) => <SmallChoice key={language} selected={draftLanguage === language} label={language.toUpperCase()} onPress={() => setDraftLanguage(language)} />)}<Action label={t("settings.addPhraseButton")} onPress={() => addPhrase(action)} disabled={draft.trim().length < 3} /></ButtonRow>
+          </View> : null}
+        </View>;
+      })}
+      <DisclosureRow label={t("settings.voiceCommandsTest")} expanded={open === "test"} onPress={() => { setOpen(open === "test" ? null : "test"); setTestResult(null); }} compact />
+      {open === "test" ? <View style={styles.disclosureBody}>
+        <Text style={styles.help}>{t("settings.voiceCommandsTestHelp")}</Text>
+        <TextInput value={testText} onChangeText={setTestText} placeholder={t("settings.voiceCommandsTestPlaceholder", { name: preferences.robotName })} placeholderTextColor={looiTheme.muted} style={styles.input} />
+        <Action label={t("settings.voiceCommandsTestButton")} onPress={runSafeTest} disabled={!testText.trim()} secondary />
+        {testResult ? <Text style={styles.result}>{testResult}</Text> : null}
+      </View> : null}
+    </View> : null}
+  </Section>;
+}
+
+function DisclosureRow({ label, expanded, onPress, compact }: { label: string; expanded: boolean; onPress: () => void; compact?: boolean }) {
+  return <Pressable onPress={onPress} style={[styles.disclosureRow, compact && styles.disclosureCompact]}><Text style={styles.value}>{label}</Text><Text style={styles.disclosureChevron}>{expanded ? "▾" : "›"}</Text></Pressable>;
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) { return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text><View style={styles.card}>{children}</View></View>; }
 function Summary({ label, value, ok, neutral }: { label: string; value: string; ok: boolean; neutral?: boolean }) { return <View style={styles.summaryCard}><Text style={styles.summaryLabel}>{label}</Text><Text style={[styles.summaryValue, ok ? styles.ok : neutral ? styles.muted : styles.error]}>{value}</Text></View>; }
 function Choice({ selected, label, detail, tone, onPress }: { selected: boolean; label: string; detail?: string; tone?: "recommended" | "quality" | "previous"; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.choice, tone === "recommended" && styles.choiceRecommended, tone === "quality" && styles.choiceQuality, tone === "previous" && styles.choicePrevious, selected && styles.choiceSelected]}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable>; }
@@ -609,6 +862,20 @@ const styles = StyleSheet.create({
   choicePrevious: { borderColor: "rgba(255,209,102,0.24)" },
   previousModelsBox: { borderWidth: 1, borderColor: "rgba(255,209,102,0.35)", borderRadius: 16, padding: 10, gap: 8, backgroundColor: "rgba(255,209,102,0.025)" },
   previousModelsTitle: { color: looiTheme.warn, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
+  disclosureRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: looiTheme.line, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11 },
+  disclosureCompact: { marginTop: 2, paddingVertical: 8 },
+  disclosureChevron: { color: looiTheme.cyan, fontSize: 18, fontWeight: "800" },
+  disclosureBody: { gap: 9, paddingLeft: 4, paddingRight: 2, paddingBottom: 4 },
+  paletteChoiceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  paletteSwatches: { flexDirection: "row", alignItems: "center", width: 38 },
+  paletteSwatch: { width: 24, height: 24, borderRadius: 999, borderWidth: 2, borderColor: "rgba(255,255,255,0.55)" },
+  paletteSwatchOverlap: { marginLeft: -10 },
+  tagWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  tag: { borderWidth: 1, borderColor: looiTheme.line, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  inlineInput: { flexDirection: "row", alignItems: "center", gap: 8 },
+  flexInput: { flex: 1 },
+  phraseRow: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: looiTheme.line, paddingVertical: 7 },
+  deleteText: { color: looiTheme.danger, fontSize: 22, lineHeight: 22, paddingHorizontal: 6 },
   voiceChoice: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: looiTheme.line, borderRadius: 14, overflow: "hidden" },
   voiceSelect: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10, padding: 11 },
   previewButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 12, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: looiTheme.line },

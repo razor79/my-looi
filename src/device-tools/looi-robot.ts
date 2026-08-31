@@ -690,6 +690,34 @@ export async function moveLooi(direction: string, durationMs = DEFAULT_MOVE_DURA
   return result;
 }
 
+/**
+ * Tiny safety-bounded pivot reserved for ambient/character motion. Unlike
+ * turnLooi(), this uses a short millisecond duration rather than a calibrated
+ * 90/180-degree turn. It still passes through the exact same cliff/near-edge
+ * interlocks and BLE deadlines as every other bounded wheel primitive.
+ */
+export async function performLooiAmbientPivot(direction: "left" | "right", durationMs: number) {
+  const boundedDurationMs = Math.max(80, Math.min(240, Math.round(durationMs)));
+  return runBoundedMotion(direction, boundedDurationMs, "manual-bounded", {
+    ambientMotion: true,
+    ambientPrimitive: "micro-pivot",
+  });
+}
+
+/**
+ * Tiny face-attention correction. This intentionally reuses the same bounded
+ * drive primitive and cliff/near-edge interlocks as ambient motion, but unlike
+ * ambient peeks it does not automatically return: the next camera observation
+ * decides whether another correction is needed.
+ */
+export async function performLooiSocialAttentionPivot(direction: "left" | "right", durationMs: number) {
+  const boundedDurationMs = Math.max(90, Math.min(180, Math.round(durationMs)));
+  return runBoundedMotion(direction, boundedDurationMs, "manual-bounded", {
+    socialAttention: true,
+    socialAttentionPrimitive: "face-recenter-pivot",
+  });
+}
+
 /** Calibrated bounded turn. First build uses time estimates that must be tuned on the real robot. */
 export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 90) {
   const robot = await getRobot();
@@ -878,6 +906,16 @@ export async function performLooiHeadGesture(gesture: string, repetitions = 1) {
     case "sleepy":
       await robot.setHead("down");
       await delay(550);
+      await robot.setHead("center");
+      break;
+    case "thinking":
+      await robot.setHead("down");
+      await delay(300);
+      await robot.setHead("center");
+      break;
+    case "speaking_soft":
+      await robot.setHead("up");
+      await delay(150);
       await robot.setHead("center");
       break;
     default:

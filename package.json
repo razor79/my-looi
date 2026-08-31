@@ -1,7 +1,7 @@
 {
   "name": "my-looi",
   "main": "expo-router/entry",
-  "version": "2.1.122",
+  "version": "2.1.136",
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
     "@siteed/audio-studio": "3.2.1",
@@ -59,7 +59,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node scripts/anti-regression-check.mjs && node scripts/public-repository-audit.mjs && node scripts/local-memory-behavior.test.mjs && node scripts/memory-retrieval-startup-behavior.test.mjs && node scripts/natural-memory-extraction-behavior.test.mjs && node scripts/backup-storage-access-foundation.test.mjs && node scripts/realtime-mode-behavior.test.mjs && node scripts/v2.1.107-typescript-build-regression.test.mjs && node scripts/v2.1.108-voice-language-switch-regression.test.mjs && node scripts/v2.1.109-realtime-model-voice-settings-regression.test.mjs && node scripts/v2.1.110-publication-model-list-regression.test.mjs && node scripts/v2.1.111-realtime-physical-command-routing-regression.test.mjs && node scripts/v2.1.112-managed-device-maintenance-regression.test.mjs && node scripts/v2.1.113-update-diagnostic-category-regression.test.mjs && node scripts/v2.1.114-local-env-build-audit-regression.test.mjs && node scripts/v2.1.115-update-installer-kotlin-regression.test.mjs && node scripts/v2.1.116-identity-drive-signing-regression.test.mjs && node scripts/v2.1.117-root-layout-typescript-regression.test.mjs && node scripts/v2.1.118-build-helper-signing-regression.test.mjs && node scripts/v2.1.119-diagnostics-share-cleanup-regression.test.mjs && node scripts/v2.1.120-incremental-retired-module-prune-regression.test.mjs && node scripts/v2.1.121-ui-localization-regression.test.mjs && node scripts/v2.1.122-apk-provenance-vosk-regression.test.mjs",
+    "test": "node scripts/anti-regression-check.mjs && node scripts/public-repository-audit.mjs && node scripts/local-memory-behavior.test.mjs && node scripts/memory-retrieval-startup-behavior.test.mjs && node scripts/natural-memory-extraction-behavior.test.mjs && node scripts/backup-storage-access-foundation.test.mjs && node scripts/realtime-mode-behavior.test.mjs && node scripts/v2.1.107-typescript-build-regression.test.mjs && node scripts/v2.1.108-voice-language-switch-regression.test.mjs && node scripts/v2.1.109-realtime-model-voice-settings-regression.test.mjs && node scripts/v2.1.110-publication-model-list-regression.test.mjs && node scripts/v2.1.111-realtime-physical-command-routing-regression.test.mjs && node scripts/v2.1.112-managed-device-maintenance-regression.test.mjs && node scripts/v2.1.113-update-diagnostic-category-regression.test.mjs && node scripts/v2.1.114-local-env-build-audit-regression.test.mjs && node scripts/v2.1.115-update-installer-kotlin-regression.test.mjs && node scripts/v2.1.116-identity-drive-signing-regression.test.mjs && node scripts/v2.1.117-root-layout-typescript-regression.test.mjs && node scripts/v2.1.118-build-helper-signing-regression.test.mjs && node scripts/v2.1.119-diagnostics-share-cleanup-regression.test.mjs && node scripts/v2.1.120-incremental-retired-module-prune-regression.test.mjs && node scripts/v2.1.121-ui-localization-regression.test.mjs && node scripts/v2.1.122-apk-provenance-vosk-regression.test.mjs && node scripts/v2.1.123-ambient-micro-motion-regression.test.mjs && node scripts/v2.1.124-realtime-aware-natural-motion-regression.test.mjs && node scripts/v2.1.125-custom-voice-commands-regression.test.mjs && node scripts/v2.1.126-configured-realtime-routing-regression.test.mjs && node scripts/v2.1.127-identity-skins-custom-phrases-regression.test.mjs && node scripts/v2.1.128-face-skin-typescript-regression.test.mjs && node scripts/v2.1.129-face-style-palette-regression.test.mjs && node scripts/v2.1.130-social-camera-attention-regression.test.mjs && node scripts/v2.1.131-local-face-kotlin-build-regression.test.mjs && node scripts/v2.1.132-social-attention-stability-regression.test.mjs && node scripts/v2.1.133-social-attention-coordination-regression.test.mjs && node scripts/v2.1.134-far-field-vad-identity-regression.test.mjs && node scripts/v2.1.135-far-field-vad-diagnostics-regression.test.mjs && node scripts/v2.1.136-uplink-gain-social-gaze-ui-regression.test.mjs",
     "repo:public-audit": "node scripts/public-repository-audit.mjs",
     "voice:accept-device": "node scripts/run-voice-device-acceptance.mjs",
     "motion:safety-test": "node scripts/motion-deadman-behavior.test.mjs",
@@ -93,7 +93,20 @@
     "runtime:2.1.119-test": "node scripts/v2.1.119-diagnostics-share-cleanup-regression.test.mjs",
     "runtime:2.1.120-test": "node scripts/v2.1.120-incremental-retired-module-prune-regression.test.mjs",
     "runtime:2.1.121-test": "node scripts/v2.1.121-ui-localization-regression.test.mjs",
-    "runtime:2.1.122-test": "node scripts/v2.1.122-apk-provenance-vosk-regression.test.mjs"
+    "runtime:2.1.122-test": "node scripts/v2.1.122-apk-provenance-vosk-regression.test.mjs",
+    "runtime:2.1.123-test": "node scripts/v2.1.123-ambient-micro-motion-regression.test.mjs",
+    "runtime:2.1.125-test": "node scripts/v2.1.125-custom-voice-commands-regression.test.mjs",
+    "runtime:2.1.124-test": "node scripts/v2.1.124-realtime-aware-natural-motion-regression.test.mjs",
+    "runtime:2.1.126-test": "node scripts/v2.1.126-configured-realtime-routing-regression.test.mjs",
+    "runtime:2.1.127-test": "node scripts/v2.1.127-identity-skins-custom-phrases-regression.test.mjs",
+    "runtime:2.1.128-test": "node scripts/v2.1.128-face-skin-typescript-regression.test.mjs",
+    "runtime:2.1.129-test": "node scripts/v2.1.129-face-style-palette-regression.test.mjs",
+    "runtime:2.1.130-test": "node scripts/v2.1.130-social-camera-attention-regression.test.mjs",
+    "runtime:2.1.131-test": "node scripts/v2.1.131-local-face-kotlin-build-regression.test.mjs",
+    "runtime:2.1.132-test": "node scripts/v2.1.132-social-attention-stability-regression.test.mjs",
+    "runtime:2.1.133-test": "node scripts/v2.1.133-social-attention-coordination-regression.test.mjs",
+    "runtime:2.1.134-test": "node scripts/v2.1.134-far-field-vad-identity-regression.test.mjs",
+    "runtime:2.1.136-test": "node scripts/v2.1.136-uplink-gain-social-gaze-ui-regression.test.mjs"
   },
   "private": true,
   "expo": {

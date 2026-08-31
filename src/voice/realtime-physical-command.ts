@@ -7,7 +7,7 @@ import {
   stopLooiMotion,
   turnLooi,
 } from "../device-tools/looi-robot";
-import { useUserStore } from "../store/user";
+import { useUserStore, type UserPreferences } from "../store/user";
 import {
   containsEmergencyStopWord,
   parseExplicitRobotCommand,
@@ -25,9 +25,24 @@ export type RealtimePhysicalCommandResult = {
   commandKind: string;
 };
 
-export function parseRealtimePhysicalCommand(transcript: string): RealtimePhysicalCommand | null {
-  if (containsEmergencyStopWord(transcript)) return { kind: "emergency-stop" };
-  const command = parseExplicitRobotCommand(transcript);
+type VoiceCommandPreferences = Pick<UserPreferences,
+  "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases" | "listeningLanguage" | "customVoiceCommands"
+>;
+
+export function parseRealtimePhysicalCommand(
+  transcript: string,
+  preferenceSnapshot?: VoiceCommandPreferences
+): RealtimePhysicalCommand | null {
+  const preferences = preferenceSnapshot ?? useUserStore.getState().preferences;
+  const config = {
+    robotName: preferences.robotName,
+    robotAddressAliases: preferences.robotAddressAliases,
+    robotAddressRecognitionAliases: preferences.robotAddressRecognitionAliases,
+    listeningLanguage: preferences.listeningLanguage,
+    customVoiceCommands: preferences.customVoiceCommands,
+  };
+  if (containsEmergencyStopWord(transcript, config)) return { kind: "emergency-stop" };
+  const command = parseExplicitRobotCommand(transcript, config);
   return command ? { kind: "explicit", command } : null;
 }
 

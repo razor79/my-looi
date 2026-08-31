@@ -15,12 +15,13 @@ The project is community-developed and is not affiliated with or endorsed by the
 - **Local memory and conversation history** stored in SQLite on the Android device.
 - **Local wake and safety command pipeline** for hands-free use.
 - **BLE reconnect and deterministic robot control** with voice-addressed movement and safety guardrails.
+- **Natural idle and conversational micro-movements** with four intensity levels, conservative head gestures while processing/speaking, and optional tiny safety-bounded idle body pivots; actual user speech and explicit commands always take priority.
 - **Hard privacy suspend** when the app is backgrounded or the screen is off.
 - **No companion backend required** for normal operation.
 - **Manual diagnostics export** through the Android share sheet (including Google Drive when installed) or a persistently selected local Android Documents/SAF folder. My LOOI does not request direct Google Drive access.
 - **Manual GitHub Releases update flow** with APK checksum/package/version/signing-certificate verification before Android installation.
 
-See [FEATURES.md](FEATURES.md) for a fuller feature list, [CHANGELOG.md](CHANGELOG.md) for release notes, and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
+See [USER_GUIDE.md](USER_GUIDE.md) for setup, built-in voice-command examples and everyday use, [FEATURES.md](FEATURES.md) for a fuller feature list, [CHANGELOG.md](CHANGELOG.md) for release notes, and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
 
 ## Requirements
 
@@ -64,7 +65,7 @@ My LOOI keeps conversation history and durable memory locally. Audio is sent to 
 
 ## Safety
 
-Robot movement code includes emergency STOP handling, movement deadman protection, BLE lifecycle checks, and directional cliff-safety guardrails. Any changes to movement or BLE behavior should run the dedicated safety regressions before release.
+Robot movement code includes emergency STOP handling, movement deadman protection, BLE lifecycle checks, and directional cliff-safety guardrails. Idle body micro-movements use the same bounded movement/sensor interlocks and never use continuous autonomous translation. Conversational motion is head-only and is suppressed while the user is speaking. Any changes to movement or BLE behavior should run the dedicated safety regressions before release.
 
 ## Origins and evolution
 

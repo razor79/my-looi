@@ -28,7 +28,8 @@ const store = read("src/store/user.ts");
 assert.match(store, /interfaceLanguage:\s*InterfaceLanguage/);
 assert.match(store, /interfaceLanguage:\s*detectSystemInterfaceLanguage\(\)/);
 assert.match(store, /version:\s*1 \| 2 \| 3 \| 4 \| 5 \| 6/);
-assert.match(store, /version:\s*6,\s*preferences/);
+const savedPreferencesVersion = Number(store.match(/version:\s*(\d+),\s*preferences/)?.[1]);
+assert.ok(Number.isInteger(savedPreferencesVersion) && savedPreferencesVersion >= 6);
 
 const strings = read("src/i18n/ui-strings.ts");
 assert.match(strings, /const en = \{/);
